@@ -10,8 +10,8 @@ from streamlit_searchbox import st_searchbox
 
 # --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
-    page_title="Ajan Portföy Paneli",
-    page_icon="📈",
+    page_title="Global Ajan Portföy Paneli",
+    page_icon="🌍",
     layout="wide"
 )
 
@@ -21,7 +21,7 @@ EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
 
-# --- CANLI ARAMA FONKSİYONLARI ---
+# --- CANLI ARAMA FONKSİYONLARI (KÜRESEL) ---
 def canlı_hisse_sorgula(search_term: str):
     if not search_term or len(search_term.strip()) < 1:
         return []
@@ -37,7 +37,7 @@ def canlı_hisse_sorgula(search_term: str):
                 name = q.get('shortname') or q.get('longname') or symbol
                 exch = q.get('exchDisp', '')
                 if symbol:
-                    sonuclar.append((f"{symbol} - {name} ({exch})", symbol))
+                    sonuclar.append((f"🌐 {symbol} - {name} ({exch})", symbol))
             return sonuclar
     except Exception:
         pass
@@ -157,8 +157,11 @@ def hisse_fiyat_getir(hisse_kodu):
     except Exception: return hisse_kodu, None, None
 
 def hisse_kazan_otomatik_belirle(hisse_kodu):
+    kod = hisse_kod_duzelt(hisse_kodu)
+    # ABD Dev Şirketleri Otomatik A Kazanı
+    if kod in ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B"]:
+        return "A Kazanı (%50 - Sakin Liman)"
     try:
-        kod = hisse_kod_duzelt(hisse_kodu)
         ticker = yf.Ticker(kod)
         info = ticker.info
         market_cap = info.get('marketCap', 0)
@@ -177,14 +180,14 @@ def tv_sembol_donustur(hisse_kodu, kripto_mu=False):
     elif len(kod) <= 5 and not any(char.isdigit() for char in kod): return f"NASDAQ:{kod}"
     return kod
 
-# --- ÜST BİLGİ BARI: CANLI DÖVİZ KURLARI & DEĞERLİ METALLER ---
-st.title("🤖 Ajan Portföy Paneli")
+# --- ÜST BİLGİ BARI: CANLI KÜRESEL BORSA & DÖVİZ KURLARI ---
+st.title("🌍 Global Ajan Portföy Paneli")
 
-st.markdown("### 💱 TradingView Canlı Döviz Kurları")
+st.markdown("### 💱 Canlı Döviz Kurları & Küresel Endeksler")
 col_k1, col_k2, col_k3 = st.columns(3)
 with col_k1: components.html(tradingview_mini_widget("FX_IDC:USDTRY"), height=220)
-with col_k2: components.html(tradingview_mini_widget("FX_IDC:EURTRY"), height=220)
-with col_k3: components.html(tradingview_mini_widget("FX_IDC:GBPTRY"), height=220)
+with col_k2: components.html(tradingview_mini_widget("FOREXCOM:SPXUSD"), height=220)
+with col_k3: components.html(tradingview_mini_widget("FOREXCOM:NSXUSD"), height=220)
 
 st.markdown("### 🥇 Canlı Değerli Metaller (Altın & Gümüş)")
 col_m1, col_m2, col_m3 = st.columns(3)
@@ -207,7 +210,7 @@ with col_y2:
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛡️ 3 Kazanlı Sermaye Stratejisi")
-st.sidebar.info("**A Kazanı (%50):** Dev Şirketler & BTC/ETH")
+st.sidebar.info("**A Kazanı (%50):** Dev Şirketler (BIST/US) & BTC/ETH")
 st.sidebar.success("**B Kazanı (%40):** Büyüme Şirketleri")
 st.sidebar.warning("**C Kazanı (%10):** Agresif Hisseler & Altcoinler")
 
@@ -231,7 +234,7 @@ if not df_gecmis_mevcut.empty:
 
 # --- ANA EKRAN SEKMELERİ ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 Hisse Senedi Portföyü", 
+    "📈 Hisse Senedi Portföyü (BIST & ABD)", 
     "🪙 Kripto Varlık Portföyü", 
     "🤖 AI Araştırmacı Ajanı", 
     "⚡ Canlı Takip Radarı",
@@ -240,10 +243,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 # SEKME 1: HİSSE PORTFÖYÜ
 with tab1:
-    st.title("📈 Gerçekleşen Hisse Senedi İşlem Kaydı")
+    st.title("📈 Gerçekleşen Hisse Senedi İşlem Kaydı (BIST / Nasdaq / NYSE)")
     col_s1, col_s2 = st.columns([1, 1])
     with col_s1:
-        secilen_symbol = st_searchbox(canlı_hisse_sorgula, key="hisse_searchbox", placeholder="Şirket veya Kod Yazın...")
+        secilen_symbol = st_searchbox(canlı_hisse_sorgula, key="hisse_searchbox", placeholder="ABD veya BIST Hisse Kodu (Örn: AAPL, NVDA, THYAO)...")
         girilen_hisse = secilen_symbol.strip().upper() if secilen_symbol else ""
 
     with col_s2:
@@ -257,7 +260,7 @@ with tab1:
         col1, col2, col3, col4 = st.columns(4)
         with col1: tip = st.selectbox("İşlem Tipi", ["AL 🟢", "SAT 🔴", "TEMETTÜ 💰"], key="h_tip")
         with col2: para_birimi = st.selectbox("Para Birimi", ["USD ($)", "TRY (₺)", "EUR (€)", "GBP (£)"], key="h_pb")
-        with col3: fiyat = st.number_input("İşlem Fiyatı / Tutar:", min_value=0.0, value=None, placeholder="Örn: 0.58", step=0.01, format="%.4f", key="h_f")
+        with col3: fiyat = st.number_input("İşlem Fiyatı / Tutar:", min_value=0.0, value=None, placeholder="Örn: 220.50", step=0.01, format="%.4f", key="h_f")
         with col4: adet = st.number_input("Adet:", min_value=1, value=1, step=1, key="h_a")
         c1, c2, c3 = st.checkbox("🛡️ Stratejime uygun.", key="h_c1"), st.checkbox("🧠 Duygusal değil.", key="h_c2"), st.checkbox("📱 Kurumda gerçekleşti.", key="h_c3")
         
@@ -272,7 +275,7 @@ with tab1:
     df_hisse = veri_yukle(EXCEL_HISSE)
     if not df_hisse.empty:
         st.markdown("---")
-        st.subheader("📊 Canlı Hisse Portföy Durumu")
+        st.subheader("📊 Canlı Hisse Portföy Durumu (Küresel)")
         portfoy_ozet, t_temettu, gerceklesen_kz = {}, 0.0, 0.0
         for _, row in df_hisse.iterrows():
             h, t, a, f, pb = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"], row.get("Para_Birimi", "USD")
@@ -312,7 +315,7 @@ with tab1:
                     df_ozet_h, 
                     names='Kazan', 
                     values='Güncel Değer ($)', 
-                    title='🎨 Hisse 3 Kazan Dağılımı',
+                    title='🎨 Global Hisse 3 Kazan Dağılımı',
                     hole=0.4,
                     color_discrete_sequence=px.colors.qualitative.Pastel
                 )
@@ -412,8 +415,8 @@ with tab2:
 with tab3:
     st.title("🤖 AI Borsa & Kripto Araştırmacı Ajanı")
     col_a1, col_a2 = st.columns([2, 1])
-    with col_a1: secilen_ajan = st_searchbox(canlı_kripto_sorgula, key="ajan_searchbox", placeholder="Grafiği Açılacak Kripto/Hisse..."); ajan_kod = secilen_ajan.strip().upper() if secilen_ajan else "SOL"
-    with col_a2: varlik_turu = st.radio("Varlık Türü:", ["Kripto (Binance)", "Hisse Senedi"], horizontal=True)
+    with col_a1: secilen_ajan = st_searchbox(canlı_hisse_sorgula, key="ajan_searchbox", placeholder="Grafiği Açılacak Hisse veya Kripto..."); ajan_kod = secilen_ajan.strip().upper() if secilen_ajan else "AAPL"
+    with col_a2: varlik_turu = st.radio("Varlık Türü:", ["Hisse (BIST/US)", "Kripto (Binance)"], horizontal=True)
     if st.button("🔍 TradingView Grafiği Yükle"):
         tv_symbol = tv_sembol_donustur(ajan_kod, kripto_mu=("Kripto" in varlik_turu))
         components.html(tradingview_gelismis_widget(tv_symbol), height=620)
@@ -421,23 +424,23 @@ with tab3:
 # SEKME 4: CANLI TAKİP RADARI
 with tab4:
     st.title("⚡ Canlı Piyasa & Portföy Radarı")
-    st.caption("Değerli Metaller (Ons/Gram), Döviz, BIST, Kriptolar ve TEFAS Fonları anlık takip edilir.")
+    st.caption("Değerli Metaller, Döviz, S&P 500, Nasdaq, BIST, Kriptolar anlık takip edilir.")
     
     if st.button("🔄 Canlı Verileri Yenile", key="btn_radar_refresh"):
         st.rerun()
         
     rm1, rm2, rm3, rm4 = st.columns(4)
     try:
-        r_data = yf.Tickers("GC=F SI=F PL=F USDTRY=X BTC-USD")
+        r_data = yf.Tickers("GC=F USDTRY=X ^GSPC ^IXIC")
         r_ons = r_data.tickers["GC=F"].fast_info.get('lastPrice', 0)
         r_dolar = r_data.tickers["USDTRY=X"].fast_info.get('lastPrice', 0)
-        r_btc = r_data.tickers["BTC-USD"].fast_info.get('lastPrice', 0)
-        r_gram = (r_ons * r_dolar) / 31.1035 if r_ons and r_dolar else 0
+        r_spx = r_data.tickers["^GSPC"].fast_info.get('lastPrice', 0)
+        r_ixic = r_data.tickers["^IXIC"].fast_info.get('lastPrice', 0)
         
-        rm1.metric("Gram Altın (TL)", f"₺{r_gram:,.2f}")
-        rm2.metric("Ons Altın ($)", f"${r_ons:,.2f}")
-        rm3.metric("Dolar / TL", f"₺{r_dolar:,.2f}")
-        rm4.metric("Bitcoin ($)", f"${r_btc:,.2f}")
+        rm1.metric("Ons Altın ($)", f"${r_ons:,.2f}")
+        rm2.metric("Dolar / TL", f"₺{r_dolar:,.2f}")
+        rm3.metric("S&P 500 Index", f"{r_spx:,.2f}")
+        rm4.metric("Nasdaq Index", f"{r_ixic:,.2f}")
     except Exception:
         st.warning("Makro piyasa verileri çekilirken anlık gecikme yaşandı.")
         
@@ -461,6 +464,9 @@ with tab4:
             if v_str in ["BTC", "ETH", "SOL", "AVAX", "XRP", "ADA"] or "USDT" in v_str:
                 sembol = f"{v_str.replace('USDT', '')}-USD"
                 varlik_tipi = "Kripto"
+            elif v_str in ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "GOOGL", "META"]:
+                sembol = v_str
+                varlik_tipi = "ABD Borsası (Nasdaq/NYSE)"
             elif len(v_str) == 3 and v_str.isalpha() and not v_str.endswith(".IS"):
                 sembol = f"{v_str}.IS"
                 varlik_tipi = "TEFAS Fonu"
@@ -496,8 +502,8 @@ with tab4:
 
 # SEKME 5: SİSTEM & YAZILIM AR-GE AJANI (SKILL TABANLI)
 with tab5:
-    st.title("💻 Akıllı Yazılım & Ar-Ge Ajanı (Skill Entegreli)")
-    st.caption("Ajan Skill'leri: Kod Denetimi, FinTek Kütüphane Araştırması ve Dinamik Sistem Mimarlığı.")
+    st.title("💻 Akıllı Yazılım & Ar-Ge Ajanı (Küresel Skill Entegreli)")
+    st.caption("Ajan Skill'leri: Kod Denetimi, Global FinTek Kütüphane Araştırması ve Dinamik Sistem Mimarlığı.")
     
     # AJAN SKILL MODÜLLERİ
     def skill_code_audit():
@@ -516,7 +522,13 @@ with tab5:
         return audit_results
 
     def skill_fintech_research(konu):
-        if "indikatör" in konu.lower():
+        if "küresel" in konu.lower() or "abd" in konu.lower():
+            return [
+                "🌐 **S&P 500 & Nasdaq Entegrasyonu:** Tamamlandı ✅ (Global hisselerAAPL, NVDA eklenebilir).",
+                "💵 **Çoklu Para Birimi Otomasyonu:** ABD Hisseleri doğrudan USD cinsinden takip ediliyor.",
+                "🏛️ **FED Faiz / Makro Takvim:** ABD Merkez Bankası faiz kararlarını takip eden widget."
+            ]
+        elif "indikatör" in konu.lower():
             return [
                 "📊 **RSI (Relative Strength Index):** Aşırı alım/satım noktalarını tespit etmek için eklenmeli.",
                 "📈 **MACD (Moving Average Convergence Divergence):** Trend dönüşüm sinyalleri için entegre edilmeli.",
@@ -525,12 +537,12 @@ with tab5:
         elif "arayüz" in konu.lower() or "görsel" in konu.lower():
             return [
                 "🎨 **Portföy Pasta Grafiği:** 3 Kazan dağılımı görselleştirildi (Tamamlandı ✅).",
-                "🔥 **Isı Haritası (Heatmap):** Günlük en çok kazandıran/kaybettiren hisseler için eklenebilir.",
+                "🔥 **Isı Haritası (Heatmap):** S&P 500 ve BIST için günlük kazandıran/kaybettiren Isı Haritası.",
                 "📱 **Mobil Arayüz Kartları:** Tablo yerine mobilde kart görünümü entegre edilebilir."
             ]
         else:
             return [
-                "📅 **Temettü Takvimi Sekmesi:** BIST temettü tarihlerini oto-çeken sekme.",
+                "📅 **Temettü Takvimi Sekmesi:** Global ve BIST hisselerinin temettü tarihlerini otomasyona bağlama.",
                 "🔔 **Telegram / WhatsApp Bildirim Botu:** Fiyat kırılımlarında mesaj atacak bot Skill'i."
             ]
 
@@ -549,7 +561,7 @@ with tab5:
         st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
         araştırma_konusu = st.selectbox(
             "Ajan Neyi Araştırsın?",
-            ["Gelişmiş İndikatörler & Teknik Analiz", "Arayüz & Görsel Geliştirmeler", "Yeni Sekme & Otomasyon Fikirleri"]
+            ["Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)", "Gelişmiş İndikatörler & Teknik Analiz", "Arayüz & Görsel Geliştirmeler", "Yeni Sekme & Otomasyon Fikirleri"]
         )
         if st.button("🚀 Ajan Araştırmasını Başlat"):
             st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı inceleniyor...")
@@ -561,6 +573,6 @@ with tab5:
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
-    Arayüz geliştirmesi (3 Kazan Pasta Grafiği) başarıyla tamamlandı. 
+    Sistemimiz ABD Borsaları (Nasdaq / NYSE) ve S&P 500 küresel endeksleri ile genişletildi. 
     Bir sonraki Ar-Ge hedefimiz: **RSI ve MACD Teknik Göstergelerini** canlı verilere entegre etmek!
     """)
