@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
+import plotly.graph_objects as go
 import os
 from datetime import datetime
 
@@ -57,15 +58,37 @@ def excel_islem_ekle(tarih, tur, kod, adet, fiyat, kazan, notlar):
         return False
 
 # ==========================================
-# 📊 ARAYÜZ BAŞLIĞI
+# 📊 ARAYÜZ VE SOL MENÜ (SIDEBAR)
 # ==========================================
+df_islem, df_ozet = excel_oku()
+
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/2092/2092663.png", width=80)
+    st.title("🤖 Portföy Yönetimi")
+    st.caption("Ajan Komuta Merkezi")
+    st.markdown("---")
+    
+    st.subheader("➕ Hızlı İşlem Girişi")
+    with st.form("sidebar_islem_formu", clear_on_submit=True):
+        tarih = st.date_input("Tarih", datetime.now())
+        tur = st.selectbox("İşlem Türü", ["ALIM", "SATIM"])
+        kod = st.text_input("Varlık Kodu (THYAO, BTC vb.)", "THYAO")
+        kazan = st.selectbox("Kazan", ["A Kazanı (Hisse)", "B Kazanı (Kripto/Döviz/Metal)", "C Kazanı (Nakit)"])
+        adet = st.number_input("Adet", min_value=0.0001, value=1.0)
+        fiyat = st.number_input("Birim Fiyat (TL)", min_value=0.01, value=100.0)
+        notlar = st.text_input("Not", "")
+        
+        btn = st.form_submit_button("💾 Kaydet")
+        if btn:
+            if excel_islem_ekle(tarih, tur, kod, adet, fiyat, kazan, notlar):
+                st.success("İşlem eklendi!")
+                st.rerun()
+
 st.title("🤖 Ajan Portföy Paneli")
 st.caption("3 Kazanlı Sermaye Yönetimi & Canlı Piyasa Takip Ajanı")
 
-df_islem, df_ozet = excel_oku()
-
 # 📑 SEKMELER
-tab1, tab2, tab3 = st.tabs(["📊 Portföy Durumu", "➕ Yeni İşlem Ekle", "⚡ Canlı Takip Radarı"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Portföy Durumu", "📈 Canlı Piyasa Grafikleri", "📋 Geçmiş İşlemler", "⚡ Canlı Takip Radarı"])
 
 # ------------------------------------------
 # SEKME 1: PORTFÖY DURUMU
@@ -82,109 +105,78 @@ with tab1:
         col4.metric("C Kazanı (Nakit)", f"₺{son_durum.get('C Kazan', 0):,.2f}")
         
         st.markdown("---")
-        
         col_sol, col_sag = st.columns(2)
         with col_sol:
-            st.subheader("Kazan Dağılımı")
+            st.subheader("3 Kazan Dağılımı")
             kazan_data = {
                 "Kazan": ["A Kazanı", "B Kazanı", "C Kazanı"],
                 "Değer": [son_durum.get('A Kazan', 0), son_durum.get('B Kazan', 0), son_durum.get('C Kazan', 0)]
             }
-            fig_kazan = px.pie(kazan_data, values="Değer", names="Kazan", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig_kazan = px.pie(kazan_data, values="Değer", names="Kazan", hole=0.4, color_discrete_sequence=px.colors.qualitative.Set3)
             st.plotly_chart(fig_kazan, use_container_width=True)
             
         with col_sag:
-            st.subheader("Zaman İçinde Portföy Büyümesi")
-            fig_line = px.line(df_ozet, x="Tarih", y="Toplam Portföy Değeri", markers=True)
+            st.subheader("Portföy Büyüme Trendi")
+            fig_line = px.line(df_ozet, x="Tarih", y="Toplam Portföy Değeri", markers=True, line_shape="spline")
             st.plotly_chart(fig_line, use_container_width=True)
     else:
-        st.info("Henüz özet bilanço verisi bulunmuyor. Sol menüden işlem ekleyebilirsiniz.")
-
-    if df_islem is not None and not df_islem.empty:
-        st.subheader("Geçmiş İşlem Defteri")
-        st.dataframe(df_islem, use_container_width=True)
+        st.info("Henüz kaydedilmiş özet bilanço verisi yok. Sol taraftaki menüden ilk işleminizi girebilirsiniz.")
 
 # ------------------------------------------
-# SEKME 2: YENİ İŞLEM EKLE
+# SEKME 2: CANLI PİYASA GRAFİKLERİ
 # ------------------------------------------
 with tab2:
-    st.header("Yeni İşlem Kaydı")
-    with st.form("islem_formu", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            tarih = st.date_input("İşlem Tarihi", datetime.now())
-            tur = st.selectbox("İşlem Türü", ["ALIM", "SATIM"])
-            kod = st.text_input("Varlık / Hisse Kodu (Örn: THYAO, BTC, AAPL)", "THYAO")
-            kazan = st.selectbox("Kazan Sınıfı", ["A Kazanı (Hisse)", "B Kazanı (Kripto/Döviz/Metal)", "C Kazanı (Nakit/Mevduat)"])
-        with col2:
-            adet = st.number_input("Adet / Miktar", min_value=0.0001, value=1.0, step=1.0)
-            fiyat = st.number_input("Birim Fiyat (TL)", min_value=0.01, value=100.0, step=0.5)
-            notlar = st.text_area("İşlem Notu / Strateji", "")
-            
-        submit = st.form_submit_button("💾 İşlemi Excel Defterine Kaydet")
-        
-        if submit:
-            if excel_islem_ekle(tarih, tur, kod, adet, fiyat, kazan, notlar):
-                st.success(f"{kod} işlemi başarıyla kaydedildi!")
-                st.rerun()
+    st.header("📈 Canlı Piyasa & Döviz Grafikleri")
+    grafik_secim = st.selectbox("Grafik Seçin", ["Gram Altın (TL)", "Dolar / TL", "BIST 100", "Bitcoin ($)", "S&P 500"])
+    
+    sembol_map = {
+        "Gram Altın (TL)": "GC=F",
+        "Dolar / TL": "USDTRY=X",
+        "BIST 100": "XU100.IS",
+        "Bitcoin ($)": "BTC-USD",
+        "S&P 500": "^GSPC"
+    }
+    
+    periyot = st.radio("Zaman Aralığı", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
+    
+    try:
+        data_hist = yf.Ticker(sembol_map[grafik_secim]).history(period=periyot)
+        if not data_hist.empty:
+            fig_chart = px.area(data_hist, x=data_hist.index, y="Close", title=f"{grafik_secim} Trend Grafiği")
+            st.plotly_chart(fig_chart, use_container_width=True)
+    except Exception as e:
+        st.warning("Grafik yüklenirken bir sorun oluştu.")
 
 # ------------------------------------------
-# SEKME 3: CANLI TAKİP RADARI
+# SEKME 3: GEÇMİŞ İŞLEMLER
 # ------------------------------------------
 with tab3:
+    st.header("📋 İşlem Geçmişi & Defter")
+    if df_islem is not None and not df_islem.empty:
+        st.dataframe(df_islem, use_container_width=True)
+    else:
+        st.info("Geçmiş işlem kaydı bulunmuyor.")
+
+# ------------------------------------------
+# SEKME 4: CANLI TAKİP RADARI
+# ------------------------------------------
+with tab4:
     st.header("⚡ Canlı Piyasa & Portföy Radarı")
-    st.caption("Veriler yfinance ve canlı hesaplama motoruyla anlık taranır.")
-    
-    if st.button("🔄 Fiyatları Şimdi Yenile"):
+    if st.button("🔄 Verileri Yenile"):
         st.rerun()
         
     m1, m2, m3, m4 = st.columns(4)
     try:
-        makro_data = yf.Tickers("GC=F USDTRY=X EURTRY=X ^GSPC BTC-USD")
+        makro_data = yf.Tickers("GC=F USDTRY=X EURTRY=X BTC-USD")
         ons = makro_data.tickers["GC=F"].fast_info.get('lastPrice', 0)
         dolar = makro_data.tickers["USDTRY=X"].fast_info.get('lastPrice', 0)
         euro = makro_data.tickers["EURTRY=X"].fast_info.get('lastPrice', 0)
         btc = makro_data.tickers["BTC-USD"].fast_info.get('lastPrice', 0)
         gram = (ons * dolar) / 31.1035 if ons and dolar else 0
         
-        m1.metric("Gram Altın (Canlı)", f"₺{gram:,.2f}")
+        m1.metric("Gram Altın", f"₺{gram:,.2f}")
         m2.metric("Dolar / TL", f"₺{dolar:,.2f}")
         m3.metric("Euro / TL", f"₺{euro:,.2f}")
-        m4.metric("Bitcoin ($)", f"${btc:,.2f}")
+        m4.metric("Bitcoin", f"${btc:,.2f}")
     except Exception:
-        st.warning("Makro veriler çekilirken anlık gecikme oluştu.")
-        
-    st.markdown("---")
-    st.subheader("📋 Portföydeki Varlıkların Canlı Fiyat Takibi")
-    
-    if df_islem is not None and not df_islem.empty:
-        varliklar = df_islem["Hisse Kodu"].dropna().unique().tolist()
-        canli_liste = []
-        
-        for v in varliklar:
-            v_str = str(v).strip().upper()
-            if v_str in ["BTC", "ETH", "SOL", "AVAX"]:
-                sembol = f"{v_str}-USD"
-            elif len(v_str) <= 4 and not v_str.endswith(".IS"):
-                sembol = v_str
-            else:
-                sembol = f"{v_str.replace('.IS', '')}.IS"
-                
-            try:
-                t_obj = yf.Ticker(sembol)
-                fiyat = t_obj.fast_info.get('lastPrice', None)
-                onceki = t_obj.fast_info.get('previousClose', None)
-                degisim = ((fiyat - onceki) / onceki) * 100 if fiyat and onceki else 0
-                
-                canli_liste.append({
-                    "Varlık Kodu": v_str,
-                    "Takip Sembolü": sembol,
-                    "Canlı Fiyat": round(fiyat, 2) if fiyat else "N/A",
-                    "Günlük Değişim": f"%{degisim:+.2f}"
-                })
-            except:
-                canli_liste.append({"Varlık Kodu": v_str, "Takip Sembolü": sembol, "Canlı Fiyat": "N/A", "Günlük Değişim": "%0.00"})
-                
-        st.dataframe(pd.DataFrame(canli_liste), use_container_width=True)
-    else:
-        st.info("Portföyünüzde takip edilecek varlık bulunamadı. Lütfen önce işlem ekleyin.")
+        pass
