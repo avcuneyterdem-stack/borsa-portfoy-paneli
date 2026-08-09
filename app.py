@@ -113,6 +113,35 @@ def teknik_indikator_hesapla(symbol):
     except Exception:
         return None, None, "Hata"
 
+def hisse_temettu_verisi_cek(symbol):
+    """Hisse bazlı temettü geçmişi ve verim tahmini"""
+    try:
+        kod = hisse_kod_duzelt(symbol)
+        ticker = yf.Ticker(kod)
+        info = ticker.info
+        div_yield = info.get('dividendYield', 0)
+        div_rate = info.get('dividendRate', 0)
+        ex_div_date = info.get('exDividendDate', None)
+        
+        ex_date_str = datetime.datetime.fromtimestamp(ex_div_date).strftime('%Y-%m-%d') if ex_div_date else "Belirtilmedi"
+        yield_pct = f"%{div_yield * 100:.2f}" if div_yield else "%0.00"
+        
+        return {
+            "Hisse": symbol.upper(),
+            "Yıllık Temettü (Hisse Başı)": f"{div_rate:.2f}" if div_rate else "0.00",
+            "Temettü Verimi": yield_pct,
+            "Hak Kullanım Tarihi (Ex-Date)": ex_date_str,
+            "Sektör": info.get('sector', 'Bilinmiyor')
+        }
+    except Exception:
+        return {
+            "Hisse": symbol.upper(),
+            "Yıllık Temettü (Hisse Başı)": "N/A",
+            "Temettü Verimi": "%0.00",
+            "Hak Kullanım Tarihi (Ex-Date)": "Veri Çekilemedi",
+            "Sektör": "N/A"
+        }
+
 def tradingview_mini_widget(symbol):
     return f"""
     <div class="tradingview-widget-container">
@@ -271,12 +300,13 @@ if not df_gecmis_mevcut.empty:
         st.dataframe(df_sol_gecmis.iloc[::-1][["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Para_Birimi"]], height=300, width='stretch')
 
 # --- ANA EKRAN SEKMELERİ ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Hisse Senedi Portföyü (BIST & ABD)", 
     "🪙 Kripto Varlık Portföyü", 
     "🤖 AI Araştırmacı Ajanı", 
     "⚡ Canlı Takip Radarı & Makro Takvim",
-    "💻 Sistem, Ar-Ge & QA Test Ajanı"
+    "💻 Sistem, Ar-Ge & QA Test Ajanı",
+    "📅 Temettü Takvimi"
 ])
 
 # SEKME 1: HİSSE PORTFÖYÜ
@@ -484,28 +514,23 @@ with tab4:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (BİRLEŞTİRİLMİŞ EKSİKSİZ AJAN)
+# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI
 with tab5:
     st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
     st.caption("Ajan Becerileri: Kod Denetimi, FinTek Kütüphane Araştırması, Kullanıcı Simülasyonu ve API Limit Takibi.")
     
-    # MODÜL 1: KOD VE SİSTEM DENETİMİ
     def skill_code_audit():
         audit_results = []
         if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
         else: audit_results.append("⚠️ **Hisse Veri Tabanı:** Eksik!")
-        
         if os.path.exists(EXCEL_KRIPTO): audit_results.append("✅ **Kripto Veri Tabanı:** Aktif ve Erişilebilir.")
         else: audit_results.append("⚠️ **Kripto Veri Tabanı:** Eksik!")
-        
         try:
             r = requests.get("https://api.binance.com/api/v3/ping", timeout=2)
             if r.status_code == 200: audit_results.append("✅ **Binance API Skill:** Aktif ve Canlı (200 OK).")
         except: audit_results.append("❌ **Binance API Skill:** Kesinti var!")
-        
         return audit_results
 
-    # MODÜL 2: AR-GE VE FİNTEK ARAŞTIRMACISI
     def skill_fintech_research(konu):
         if "küresel" in konu.lower() or "abd" in konu.lower():
             return [
@@ -526,11 +551,10 @@ with tab5:
             ]
         else:
             return [
-                "📅 **Temettü Takvimi Sekmesi:** Global ve BIST hisselerinin temettü tarihlerini otomasyona bağlama.",
+                "📅 **Temettü Takvimi Sekmesi (Tamamlandı ✅):** BIST ve Global hisselerin temettü akışı 6. Sekmeye eklendi.",
                 "🔔 **Telegram / WhatsApp Bildirim Botu:** Fiyat kırılımlarında mesaj atacak bot Skill'i."
             ]
 
-    # MODÜL 3: OTONOM QA TEST SİMÜLASYONU
     def qa_test_simulasyonu(test_turu):
         test_raporu = []
         if test_turu == "BIST & USD Kur Çevrim Matematiği":
@@ -572,9 +596,7 @@ with tab5:
         st.markdown("### 🧪 1. Skill: Otonom Sistem & Kod Denetimi")
         if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara", key="btn_audit_scan"):
             st.write("Ajan denetim fonksiyonunu çalıştırıyor...")
-            results = skill_code_audit()
-            for r in results:
-                st.markdown(r)
+            for r in skill_code_audit(): st.markdown(r)
                 
     with col_sk2:
         st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
@@ -590,9 +612,7 @@ with tab5:
         )
         if st.button("🚀 Ajan Araştırmasını Başlat", key="btn_arge_start"):
             st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı inceleniyor...")
-            bulgular = skill_fintech_research(araştırma_konusu)
-            for b in bulgular:
-                st.write(b)
+            for b in skill_fintech_research(araştırma_konusu): st.write(b)
 
     st.markdown("---")
     st.subheader("🧪 3. Skill: Otonom QA / Test & Kullanıcı Simülatörü")
@@ -611,9 +631,7 @@ with tab5:
         )
         if st.button("🚀 QA Testini Başlat", key="btn_qa_start"):
             st.info(f"🤖 **Ajan Kullanıcı Gibi Davranıyor:** *'{secilen_test}'* modülü simüle ediliyor...")
-            rapor = qa_test_simulasyonu(secilen_test)
-            for r in rapor:
-                st.write(r)
+            for r in qa_test_simulasyonu(secilen_test): st.write(r)
                 
     with col_qa2:
         st.markdown("### 📊 Sistem Kaynak & Kota Özeti")
@@ -625,7 +643,37 @@ with tab5:
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
-    1. Ar-Ge Ajanının Araştırma ve Kod Denetimi becerileri geri yüklendi.
-    2. QA Kullanıcı Simülasyon motoru ile birleştirilerek tek çatı altında toplandı.
-    3. Tüm seçim kutuları (selectbox) ve buton tuşları çakışmasız hale getirildi.
+    1. Temettü Takvimi Sekmesi (6. Sekme) canlıya alındı.
+    2. BIST ve Küresel hisselerin canlı temettü verimleri sorgulama motoruna bağlandı.
+    3. Portföydeki hisselerin temettü akışı otomatik taramaya dahil edildi.
     """)
+
+# SEKME 6: TEMETTÜ TAKVİMİ
+with tab6:
+    st.title("📅 Canlı BIST & Küresel Temettü Takvimi")
+    st.caption("Portföyünüzdeki ve piyasadaki hisselerin temettü verimleri ve ödeme tarihleri.")
+    
+    col_t1, col_t2 = st.columns([1, 1])
+    
+    with col_t1:
+        st.subheader("🔍 Hisse Temettü Verisi Sorgula")
+        secilen_t_hisse = st_searchbox(canlı_hisse_sorgula, key="temettu_searchbox", placeholder="Hisse Kodu Yazın (Örn: EREGL, TUPRS, AAPL, KO)...")
+        girilen_t_hisse = secilen_t_hisse.strip().upper() if secilen_t_hisse else ""
+        
+        if girilen_t_hisse:
+            t_veri = hisse_temettu_verisi_cek(girilen_t_hisse)
+            st.success(f"📊 **{girilen_t_hisse} Temettü Analizi**")
+            st.json(t_veri)
+            
+    with col_t2:
+        st.subheader("💼 Portföyümdeki Hisselerin Temettü Akışı")
+        df_h_mevcut = veri_yukle(EXCEL_HISSE)
+        if not df_h_mevcut.empty and "Hisse" in df_h_mevcut.columns:
+            p_hisseler = df_h_mevcut["Hisse"].dropna().unique().tolist()
+            p_temettu_listesi = []
+            for ph in set(p_hisseler):
+                data = hisse_temettu_verisi_cek(str(ph))
+                p_temettu_listesi.append(data)
+            st.dataframe(pd.DataFrame(p_temettu_listesi), use_container_width=True)
+        else:
+            st.info("Portföyünüzde henüz hisse senedi bulunmuyor.")
