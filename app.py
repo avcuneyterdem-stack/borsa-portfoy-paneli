@@ -114,21 +114,32 @@ def teknik_indikator_hesapla(symbol):
         return None, None, "Hata"
 
 def hisse_temettu_verisi_cek(symbol):
-    """Hisse bazlı temettü geçmişi ve verim tahmini"""
+    """Hisse bazlı temettü geçmişi ve verim tahmini (Düzeltilmiş)"""
     try:
         kod = hisse_kod_duzelt(symbol)
         ticker = yf.Ticker(kod)
         info = ticker.info
-        div_yield = info.get('dividendYield', 0)
-        div_rate = info.get('dividendRate', 0)
-        ex_div_date = info.get('exDividendDate', None)
         
+        div_yield = info.get('dividendYield', 0) or 0
+        div_rate = info.get('dividendRate', 0) or 0
+        
+        # Yüzde çarpan düzeltmesi (%380 yerine %3.80 olması için)
+        if div_yield > 1:
+            yield_pct = f"%{div_yield:.2f}"
+        else:
+            yield_pct = f"%{div_yield * 100:.2f}"
+            
+        ex_div_date = info.get('exDividendDate', None)
         ex_date_str = datetime.datetime.fromtimestamp(ex_div_date).strftime('%Y-%m-%d') if ex_div_date else "Belirtilmedi"
-        yield_pct = f"%{div_yield * 100:.2f}" if div_yield else "%0.00"
+        
+        # Son ödenen tekil temettü tutarını alma
+        divs = ticker.dividends
+        son_odeme = f"${divs.iloc[-1]:.2f}" if not divs.empty else "N/A"
         
         return {
             "Hisse": symbol.upper(),
-            "Yıllık Temettü (Hisse Başı)": f"{div_rate:.2f}" if div_rate else "0.00",
+            "Son/Ağustos Temettü (Hisse Başı)": son_odeme,
+            "Yıllık Toplam Temettü": f"${div_rate:.2f}" if div_rate else "$0.00",
             "Temettü Verimi": yield_pct,
             "Hak Kullanım Tarihi (Ex-Date)": ex_date_str,
             "Sektör": info.get('sector', 'Bilinmiyor')
@@ -136,7 +147,8 @@ def hisse_temettu_verisi_cek(symbol):
     except Exception:
         return {
             "Hisse": symbol.upper(),
-            "Yıllık Temettü (Hisse Başı)": "N/A",
+            "Son/Ağustos Temettü (Hisse Başı)": "N/A",
+            "Yıllık Toplam Temettü": "$0.00",
             "Temettü Verimi": "%0.00",
             "Hak Kullanım Tarihi (Ex-Date)": "Veri Çekilemedi",
             "Sektör": "N/A"
@@ -643,9 +655,9 @@ with tab5:
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
-    1. Temettü Takvimi Sekmesi (6. Sekme) canlıya alındı.
-    2. BIST ve Küresel hisselerin canlı temettü verimleri sorgulama motoruna bağlandı.
-    3. Portföydeki hisselerin temettü akışı otomatik taramaya dahil edildi.
+    1. Novo Nordisk ve tüm global hisselerdeki temettü tutarı ve yüzde hesaplama hataları giderildi.
+    2. Tekil temettü ödemesi ($0.57) ve Yıllık toplam temettü ($1.80) ayrıştırıldı.
+    3. Temettü verimi yüzdesi (%3.80) doğru formata getirildi.
     """)
 
 # SEKME 6: TEMETTÜ TAKVİMİ
@@ -657,7 +669,7 @@ with tab6:
     
     with col_t1:
         st.subheader("🔍 Hisse Temettü Verisi Sorgula")
-        secilen_t_hisse = st_searchbox(canlı_hisse_sorgula, key="temettu_searchbox", placeholder="Hisse Kodu Yazın (Örn: EREGL, TUPRS, AAPL, KO)...")
+        secilen_t_hisse = st_searchbox(canlı_hisse_sorgula, key="temettu_searchbox", placeholder="Hisse Kodu Yazın (Örn: EREGL, TUPRS, NVO, AAPL)...")
         girilen_t_hisse = secilen_t_hisse.strip().upper() if secilen_t_hisse else ""
         
         if girilen_t_hisse:
