@@ -301,8 +301,7 @@ with tab1:
         m3.metric("Açık Pozisyon K/Z ($)", f"${t_deger - t_maliyet:,.2f}")
         m4.metric("Satış K/Z ($)", f"${gerceklesen_kz / kurlar['USD']:,.2f}")
         m5.metric("Toplam Temettü ($)", f"${t_temettu / kurlar['USD']:,.2f}")
-        
-        # --- ARAYÜZ YENİLİĞİ: 3 KAZAN GÖRSEL PASTA GRAFİĞİ ---
+
         if ozet_hisse:
             df_ozet_h = pd.DataFrame(ozet_hisse)
             col_g1, col_g2 = st.columns([2, 1])
@@ -495,44 +494,74 @@ with tab4:
     else:
         st.info("Portföyünüzde henüz kaydedilmiş bir varlık bulunmuyor. Sol taraftaki sekmelerden işlem ekleyebilirsiniz.")
 
-# SEKME 5: SİSTEM & YAZILIM AR-GE AJANI
+# SEKME 5: SİSTEM & YAZILIM AR-GE AJANI (SKILL TABANLI)
 with tab5:
-    st.title("💻 Yazılım & Sistem Ar-Ge Ajanı")
-    st.caption("Sitedeki API bağlantılarını, yazılım altyapısını ve görsellik/araç eksiklerini sürekli tarayan mimar ajan.")
+    st.title("💻 Akıllı Yazılım & Ar-Ge Ajanı (Skill Entegreli)")
+    st.caption("Ajan Skill'leri: Kod Denetimi, FinTek Kütüphane Araştırması ve Dinamik Sistem Mimarlığı.")
     
-    col_dev1, col_dev2 = st.columns(2)
-    
-    with col_dev1:
-        st.subheader("🔍 Canlı API & Veri Akışı Test Laboratuvarı")
+    # AJAN SKILL MODÜLLERİ (SİMÜLE & DİNAMİK)
+    def skill_code_audit():
+        audit_results = []
+        if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
+        else: audit_results.append("⚠️ **Hisse Veri Tabanı:** Eksik!")
         
-        # Anlık API Testi
-        if st.button("⚡ Tüm Sistem API Bağlantılarını Şimdi Tara"):
-            # Binance Test
-            try:
-                r_b = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=2)
-                st.success("✅ **Binance Kripto API:** Bağlantı Aktif (200 OK)")
-            except: st.error("❌ **Binance API:** Kesinti var!")
-            
-            # yfinance Test
-            try:
-                t_y = yf.Ticker("USDTRY=X").fast_info.get('lastPrice', None)
-                if t_y: st.success("✅ **Yahoo Finance API:** Dövis/BIST Bağlantısı Aktif")
-                else: st.warning("⚠️ **Yahoo Finance API:** Anlık veri gecikmeli")
-            except: st.error("❌ **Yahoo Finance API:** Bağlantı hatası!")
-            
-            # Excel Defteri Test
-            if os.path.exists(EXCEL_HISSE) and os.path.exists(EXCEL_KRIPTO):
-                st.success("✅ **Excel Defter Entegrasyonu:** Dosyalar okuma/yazmaya hazır")
-            else: st.warning("⚠️ **Excel Defterleri:** Henüz tam oluşturulmadı")
-            
-    with col_dev2:
-        st.subheader("💡 Panel Gelişim & Ar-Ge Önerileri")
-        st.markdown("""
-        > **Ajanın Gelecek Sürüm (v2.0) İnceleme Notları:**
-        > * **Eksik İndikatörler:** Portföydeki varlıkların aşırı alım/satım bölgesinde olup olmadığını göstermek için **RSI (14)** ve **MACD** teknik gösterge çubuğu eklenmeli.
-        > * **Görsel/Arayüz Eksiği (TAMAMLANDI ✅):** Portföyün 3 Kazan dağılımını gösteren görsel Pasta Grafiği ana sekmeye eklendi.
-        > * **Eksik Sekme Önerisi:** Yaklaşan BIST temettü tarihlerini listeleyen bir **'📅 Temettü Takvimi'** sekmesi eklenmeli.
-        """)
+        if os.path.exists(EXCEL_KRIPTO): audit_results.append("✅ **Kripto Veri Tabanı:** Aktif ve Erişilebilir.")
+        else: audit_results.append("⚠️ **Kripto Veri Tabanı:** Eksik!")
+        
+        try:
+            r = requests.get("https://api.binance.com/api/v3/ping", timeout=2)
+            if r.status_code == 200: audit_results.append("✅ **Binance API Skill:** Aktif ve Canlı.")
+        except: audit_results.append("❌ **Binance API Skill:** Kesinti!")
+        
+        return audit_results
+
+    def skill_fintech_research(konu):
+        # Ar-Ge Ajanının Dinamik Araştırma Skill'i
+        if "indikatör" in konu.lower():
+            return [
+                "📊 **RSI (Relative Strength Index):** Aşırı alım/satım noktalarını tespit etmek için eklenmeli.",
+                "📈 **MACD (Moving Average Convergence Divergence):** Trend dönüşüm sinyalleri için entegre edilmeli.",
+                "🎯 **Bollinger Bantları:** Volatillik ve kırılım noktalarını ölçmek için koda işlenmeli."
+            ]
+        elif "arayüz" in konu.lower() or "görsel" in konu.lower():
+            return [
+                "🎨 **Portföy Pasta Grafiği:** 3 Kazan dağılımı görselleştirildi (Tamamlandı ✅).",
+                "🔥 **Isı Haritası (Heatmap):** Günlük en çok kazandıran/kaybettiren hisseler için eklenebilir.",
+                "📱 **Mobil Arayüz Kartları:** Tablo yerine mobilde kart görünümü entegre edilebilir."
+            ]
+        else:
+            return [
+                "📅 **Temettü Takvimi Sekmesi:** BIST temettü tarihlerini oto-çeken sekme.",
+                "🔔 **Telegram / WhatsApp Bildirim Botu:** Fiyat kırılımlarında mesaj atacak bot Skill'i."
+            ]
+
+    st.subheader("🛠️ Ajan Skill Laboratuvarı")
+    col_sk1, col_sk2 = st.columns(2)
+    
+    with col_sk1:
+        st.markdown("### 🧪 1. Skill: Otonom Sistem & Kod Denetimi")
+        if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara"):
+            st.write("Ajan denetim fonksiyonunu çalıştırıyor...")
+            results = skill_code_audit()
+            for r in results:
+                st.markdown(r)
+                
+    with col_sk2:
+        st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
+        araştırma_konusu = st.selectbox(
+            "Ajan Neyi Araştırsın?",
+            ["Gelişmiş İndikatörler & Teknik Analiz", "Arayüz & Görsel Geliştirmeler", "Yeni Sekme & Otomasyon Fikirleri"]
+        )
+        if st.button("🚀 Ajan Araştırmasını Başlat"):
+            st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı inceleniyor...")
+            bulgular = skill_fintech_research(araştırma_konusu)
+            for b in bulgular:
+                st.write(b)
 
     st.markdown("---")
-    st.info("ℹ️ **Not:** Bu ajan sadece sitenin yazılım, kod, grafik ve API sağlığını denetler. Alım-satım ve portföy kararları için ayrı bir ajan kullanılacaktır.")
+    st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
+    st.quote("""
+    **Sistem Mimarı Ajan Notu:** 
+    Arayüz geliştirmesi (3 Kazan Pasta Grafiği) başarıyla tamamlandı. 
+    Bir sonraki Ar-Ge hedefimiz: **RSI ve MACD Teknik Göstergelerini** canlı verilere entegre etmek!
+    """)
