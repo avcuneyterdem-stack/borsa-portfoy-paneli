@@ -5,6 +5,7 @@ import datetime
 import os
 import requests
 import plotly.express as px
+import streamlit.components.v1 as components
 from streamlit_searchbox import st_searchbox
 
 # --- SAYFA YAPILANDIRMASI ---
@@ -88,7 +89,7 @@ def tradingview_mini_widget(symbol):
     <div class="tradingview-widget-container">
       <div class="tradingview-widget-container__widget"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-      {{ "symbol": "{symbol}", "width": "100%", "height": "200", "locale": "tr", "dateRange": "1M", "colorTheme": "dark", "isTransparent": true, "autosize": false }}
+      {{ "symbol": "{symbol}", "width": "100%", "height": "210", "locale": "tr", "dateRange": "1M", "colorTheme": "dark", "isTransparent": false, "autosize": false }}
       </script>
     </div>
     """
@@ -180,9 +181,9 @@ def tv_sembol_donustur(hisse_kodu, kripto_mu=False):
 st.title("🤖 Ajan Portföy Paneli")
 st.markdown("### 💱 TradingView Canlı Döviz Kurları")
 col_k1, col_k2, col_k3 = st.columns(3)
-with col_k1: st.html(tradingview_mini_widget("FX_IDC:USDTRY"))
-with col_k2: st.html(tradingview_mini_widget("FX_IDC:EURTRY"))
-with col_k3: st.html(tradingview_mini_widget("FX_IDC:GBPTRY"))
+with col_k1: components.html(tradingview_mini_widget("FX_IDC:USDTRY"), height=220)
+with col_k2: components.html(tradingview_mini_widget("FX_IDC:EURTRY"), height=220)
+with col_k3: components.html(tradingview_mini_widget("FX_IDC:GBPTRY"), height=220)
 
 kurlar = doviz_kurlari_getir()
 st.markdown("---")
@@ -386,9 +387,9 @@ with tab3:
     with col_a2: varlik_turu = st.radio("Varlık Türü:", ["Kripto (Binance)", "Hisse Senedi"], horizontal=True)
     if st.button("🔍 TradingView Grafiği Yükle"):
         tv_symbol = tv_sembol_donustur(ajan_kod, kripto_mu=("Kripto" in varlik_turu))
-        st.html(tradingview_gelismis_widget(tv_symbol))
+        components.html(tradingview_gelismis_widget(tv_symbol), height=620)
 
-# SEKME 4: CANLI TAKİP RADARI (YENİ EKLENEN MODÜL)
+# SEKME 4: CANLI TAKİP RADARI
 with tab4:
     st.title("⚡ Canlı Piyasa & Portföy Radarı")
     st.caption("Değerli Metaller (Ons/Gram), Döviz, BIST, Kriptolar ve TEFAS Fonları anlık takip edilir.")
@@ -396,7 +397,6 @@ with tab4:
     if st.button("🔄 Canlı Verileri Yenile", key="btn_radar_refresh"):
         st.rerun()
         
-    # Makro Barlar
     rm1, rm2, rm3, rm4 = st.columns(4)
     try:
         r_data = yf.Tickers("GC=F SI=F PL=F USDTRY=X BTC-USD")
@@ -415,7 +415,6 @@ with tab4:
     st.markdown("---")
     st.subheader("📋 Portföydeki Varlıkların Anlık Canlı Fiyat Takibi")
     
-    # Portföydeki varlıkları otomatik çekip takibe alma
     df_h_mevcut = veri_yukle(EXCEL_HISSE)
     df_k_mevcut = veri_yukle(EXCEL_KRIPTO)
     
@@ -430,15 +429,12 @@ with tab4:
         for v in set(portfoy_varliklar):
             v_str = str(v).strip().upper()
             
-            # Kripto
             if v_str in ["BTC", "ETH", "SOL", "AVAX", "XRP", "ADA"] or "USDT" in v_str:
                 sembol = f"{v_str.replace('USDT', '')}-USD"
                 varlik_tipi = "Kripto"
-            # Fon
             elif len(v_str) == 3 and v_str.isalpha() and not v_str.endswith(".IS"):
                 sembol = f"{v_str}.IS"
                 varlik_tipi = "TEFAS Fonu"
-            # BIST
             else:
                 sembol = f"{v_str.replace('.IS', '')}.IS"
                 varlik_tipi = "BIST / Hisse"
