@@ -499,7 +499,7 @@ with tab5:
     st.title("💻 Akıllı Yazılım & Ar-Ge Ajanı (Skill Entegreli)")
     st.caption("Ajan Skill'leri: Kod Denetimi, FinTek Kütüphane Araştırması ve Dinamik Sistem Mimarlığı.")
     
-    # AJAN SKILL MODÜLLERİ (SİMÜLE & DİNAMİK)
+    # AJAN SKILL MODÜLLERİ
     def skill_code_audit():
         audit_results = []
         if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
@@ -516,7 +516,6 @@ with tab5:
         return audit_results
 
     def skill_fintech_research(konu):
-        # Ar-Ge Ajanının Dinamik Araştırma Skill'i
         if "indikatör" in konu.lower():
             return [
                 "📊 **RSI (Relative Strength Index):** Aşırı alım/satım noktalarını tespit etmek için eklenmeli.",
@@ -560,7 +559,7 @@ with tab5:
 
     st.markdown("---")
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
-    st.quote("""
+    st.info("""
     **Sistem Mimarı Ajan Notu:** 
     Arayüz geliştirmesi (3 Kazan Pasta Grafiği) başarıyla tamamlandı. 
     Bir sonraki Ar-Ge hedefimiz: **RSI ve MACD Teknik Göstergelerini** canlı verilere entegre etmek!
