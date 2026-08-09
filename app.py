@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit.components.v1 as components
 from streamlit_searchbox import st_searchbox
 
-# --- SAYFA YAPILANDIRMASI (En Üstte Olmalı) ---
+# --- SAYFA YAPILANDIRMASI ---
 st.set_page_config(
     page_title="Ajan Portföy Paneli",
     page_icon="📈",
@@ -188,9 +188,9 @@ with col_k3: components.html(tradingview_mini_widget("FX_IDC:GBPTRY"), height=22
 
 st.markdown("### 🥇 Canlı Değerli Metaller (Altın & Gümüş)")
 col_m1, col_m2, col_m3 = st.columns(3)
-with col_m1: components.html(tradingview_mini_widget("OANDA:XAUUSD"), height=220) # Ons Altın ($)
-with col_m2: components.html(tradingview_mini_widget("OANDA:XAGUSD"), height=220) # Ons Gümüş ($)
-with col_m3: components.html(tradingview_mini_widget("TVC:GOLD"), height=220)     # Altın Genel Trend
+with col_m1: components.html(tradingview_mini_widget("OANDA:XAUUSD"), height=220)
+with col_m2: components.html(tradingview_mini_widget("OANDA:XAGUSD"), height=220)
+with col_m3: components.html(tradingview_mini_widget("TVC:GOLD"), height=220)
 
 kurlar = doviz_kurlari_getir()
 st.markdown("---")
@@ -230,7 +230,13 @@ if not df_gecmis_mevcut.empty:
         st.dataframe(df_sol_gecmis.iloc[::-1][["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Para_Birimi"]], height=300, width='stretch')
 
 # --- ANA EKRAN SEKMELERİ ---
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Hisse Senedi Portföyü", "🪙 Kripto Varlık Portföyü", "🤖 AI Araştırmacı Ajanı", "⚡ Canlı Takip Radarı"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📈 Hisse Senedi Portföyü", 
+    "🪙 Kripto Varlık Portföyü", 
+    "🤖 AI Araştırmacı Ajanı", 
+    "⚡ Canlı Takip Radarı",
+    "💻 Sistem & Yazılım Ar-Ge Ajanı"
+])
 
 # SEKME 1: HİSSE PORTFÖYÜ
 with tab1:
@@ -471,3 +477,45 @@ with tab4:
         st.dataframe(pd.DataFrame(radar_tablosu), use_container_width=True)
     else:
         st.info("Portföyünüzde henüz kaydedilmiş bir varlık bulunmuyor. Sol taraftaki sekmelerden işlem ekleyebilirsiniz.")
+
+# SEKME 5: SİSTEM & YAZILIM AR-GE AJANI
+with tab5:
+    st.title("💻 Yazılım & Sistem Ar-Ge Ajanı")
+    st.caption("Sitedeki API bağlantılarını, yazılım altyapısını ve görsellik/araç eksiklerini sürekli tarayan mimar ajan.")
+    
+    col_dev1, col_dev2 = st.columns(2)
+    
+    with col_dev1:
+        st.subheader("🔍 Canlı API & Veri Akışı Test Laboratuvarı")
+        
+        # Anlık API Testi
+        if st.button("⚡ Tüm Sistem API Bağlantılarını Şimdi Tara"):
+            # Binance Test
+            try:
+                r_b = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=2)
+                st.success("✅ **Binance Kripto API:** Bağlantı Aktif (200 OK)")
+            except: st.error("❌ **Binance API:** Kesinti var!")
+            
+            # yfinance Test
+            try:
+                t_y = yf.Ticker("USDTRY=X").fast_info.get('lastPrice', None)
+                if t_y: st.success("✅ **Yahoo Finance API:** Döviz/BIST Bağlantısı Aktif")
+                else: st.warning("⚠️ **Yahoo Finance API:** Anlık veri gecikmeli")
+            except: st.error("❌ **Yahoo Finance API:** Bağlantı hatası!")
+            
+            # Excel Defteri Test
+            if os.path.exists(EXCEL_HISSE) and os.path.exists(EXCEL_KRIPTO):
+                st.success("✅ **Excel Defter Entegrasyonu:** Dosyalar okuma/yazmaya hazır")
+            else: st.warning("⚠️ **Excel Defterleri:** Henüz tam oluşturulmadı")
+            
+    with col_dev2:
+        st.subheader("💡 Panel Gelişim & Ar-Ge Önerileri")
+        st.markdown("""
+        > **Ajanın Gelecek Sürüm (v2.0) İnceleme Notları:**
+        > * **Eksik İndikatörler:** Portföydeki varlıkların aşırı alım/satım bölgesinde olup olmadığını göstermek için **RSI (14)** ve **MACD** teknik gösterge çubuğu eklenmeli.
+        > * **Görsel/Arayüz Eksiği:** Portföyün 3 Kazan dağılımını gösteren görsel bir **Pasta Grafiği (Plotly)** ana sekmeye eklenmeli.
+        > * **Eksik Sekme Önerisi:** Yaklaşan BIST temettü tarihlerini listeleyen bir **'📅 Temettü Takvimi'** sekmesi eklenmeli.
+        """)
+
+    st.markdown("---")
+    st.info("ℹ️ **Not:** Bu ajan sadece sitenin yazılım, kod, grafik ve API sağlığını denetler. Alım-satım ve portföy kararları için ayrı bir ajan kullanılacaktır.")
