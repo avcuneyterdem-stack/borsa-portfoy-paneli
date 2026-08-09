@@ -276,7 +276,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🪙 Kripto Varlık Portföyü", 
     "🤖 AI Araştırmacı Ajanı", 
     "⚡ Canlı Takip Radarı & Makro Takvim",
-    "💻 Sistem & QA Test Ajanı"
+    "💻 Sistem, Ar-Ge & QA Test Ajanı"
 ])
 
 # SEKME 1: HİSSE PORTFÖYÜ
@@ -484,11 +484,53 @@ with tab4:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: SİSTEM & QA TEST AJANI
+# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (BİRLEŞTİRİLMİŞ EKSİKSİZ AJAN)
 with tab5:
     st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
-    st.caption("Ajan Becerileri: Kullanıcı Simülasyonu, Kur Çevrim Denetimi, API Limit Takibi ve Borsa Matematiği Testi.")
+    st.caption("Ajan Becerileri: Kod Denetimi, FinTek Kütüphane Araştırması, Kullanıcı Simülasyonu ve API Limit Takibi.")
     
+    # MODÜL 1: KOD VE SİSTEM DENETİMİ
+    def skill_code_audit():
+        audit_results = []
+        if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
+        else: audit_results.append("⚠️ **Hisse Veri Tabanı:** Eksik!")
+        
+        if os.path.exists(EXCEL_KRIPTO): audit_results.append("✅ **Kripto Veri Tabanı:** Aktif ve Erişilebilir.")
+        else: audit_results.append("⚠️ **Kripto Veri Tabanı:** Eksik!")
+        
+        try:
+            r = requests.get("https://api.binance.com/api/v3/ping", timeout=2)
+            if r.status_code == 200: audit_results.append("✅ **Binance API Skill:** Aktif ve Canlı (200 OK).")
+        except: audit_results.append("❌ **Binance API Skill:** Kesinti var!")
+        
+        return audit_results
+
+    # MODÜL 2: AR-GE VE FİNTEK ARAŞTIRMACISI
+    def skill_fintech_research(konu):
+        if "küresel" in konu.lower() or "abd" in konu.lower():
+            return [
+                "🌐 **S&P 500 & Nasdaq Entegrasyonu:** Tamamlandı ✅ (Global hisseler AAPL, NVDA eklenebilir).",
+                "💵 **Çoklu Para Birimi Otomasyonu:** ABD Hisseleri doğrudan USD cinsinden takip ediliyor.",
+                "🏛️ **FED Faiz / Makro Takvim (Tamamlandı ✅):** Canlı küresel ekonomik takvim 4. Sekmeye eklendi."
+            ]
+        elif "indikatör" in konu.lower():
+            return [
+                "📊 **RSI (Relative Strength Index) (Tamamlandı ✅):** Gerçek zamanlı RSI (14) tabloya ve forma işlendi.",
+                "📈 **MACD (Tamamlandı ✅):** Trend dönüşüm sinyalleri hesaplama motoru eklendi.",
+                "🎯 **Bollinger Bantları:** Volatillik ve kırılım noktalarını ölçmek için sıradaki hedef."
+            ]
+        elif "arayüz" in konu.lower() or "görsel" in konu.lower():
+            return [
+                "🎨 **Portföy Pasta Grafiği:** 3 Kazan dağılımı görselleştirildi (Tamamlandı ✅).",
+                "🔥 **Isı Haritası (Heatmap):** S&P 500 ve BIST için günlük kazandıran/kaybettiren Isı Haritası."
+            ]
+        else:
+            return [
+                "📅 **Temettü Takvimi Sekmesi:** Global ve BIST hisselerinin temettü tarihlerini otomasyona bağlama.",
+                "🔔 **Telegram / WhatsApp Bildirim Botu:** Fiyat kırılımlarında mesaj atacak bot Skill'i."
+            ]
+
+    # MODÜL 3: OTONOM QA TEST SİMÜLASYONU
     def qa_test_simulasyonu(test_turu):
         test_raporu = []
         if test_turu == "BIST & USD Kur Çevrim Matematiği":
@@ -523,11 +565,40 @@ with tab5:
                 
         return test_raporu
 
-    st.subheader("🧪 Otonom QA / Test & Kullanıcı Simülatörü")
+    st.subheader("🛠️ Ajan Skill Laboratuvarı")
+    col_sk1, col_sk2 = st.columns(2)
+    
+    with col_sk1:
+        st.markdown("### 🧪 1. Skill: Otonom Sistem & Kod Denetimi")
+        if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara", key="btn_audit_scan"):
+            st.write("Ajan denetim fonksiyonunu çalıştırıyor...")
+            results = skill_code_audit()
+            for r in results:
+                st.markdown(r)
+                
+    with col_sk2:
+        st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
+        araştırma_konusu = st.selectbox(
+            "Ajan Neyi Araştırsın?",
+            [
+                "Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)", 
+                "Gelişmiş İndikatörler & Teknik Analiz", 
+                "Arayüz & Görsel Geliştirmeler", 
+                "Yeni Sekme & Otomasyon Fikirleri"
+            ],
+            key="sb_arge_research"
+        )
+        if st.button("🚀 Ajan Araştırmasını Başlat", key="btn_arge_start"):
+            st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı inceleniyor...")
+            bulgular = skill_fintech_research(araştırma_konusu)
+            for b in bulgular:
+                st.write(b)
+
+    st.markdown("---")
+    st.subheader("🧪 3. Skill: Otonom QA / Test & Kullanıcı Simülatörü")
     col_qa1, col_qa2 = st.columns(2)
     
     with col_qa1:
-        st.markdown("### 🔎 1. Simülasyon Senaryosu Seçin")
         secilen_test = st.selectbox(
             "Ajan Hangi Modülü Zorlasın?",
             [
@@ -535,16 +606,17 @@ with tab5:
                 "ABD Borsaları & Küsürat Satış Hassasiyeti",
                 "Kripto & Binance API Limit / Rate Control",
                 "RSI (14) & MACD Hesaplama Motoru"
-            ]
+            ],
+            key="sb_qa_test"
         )
-        if st.button("🚀 QA Testini Başlat"):
+        if st.button("🚀 QA Testini Başlat", key="btn_qa_start"):
             st.info(f"🤖 **Ajan Kullanıcı Gibi Davranıyor:** *'{secilen_test}'* modülü simüle ediliyor...")
             rapor = qa_test_simulasyonu(secilen_test)
             for r in rapor:
                 st.write(r)
                 
     with col_qa2:
-        st.markdown("### 📊 2. Sistem Kaynak & Kota Özeti")
+        st.markdown("### 📊 Sistem Kaynak & Kota Özeti")
         st.success("🟢 **RAM Kullanımı:** Güvenli Bölgede (< 350 MB / 1 GB Limit)")
         st.success("🟢 **Streamlit Cloud Durumu:** Aktif ve Canlı")
         st.success("🟢 **API Kotası:** Dengeli (Yahoo & Binance İstekleri Cachelendi)")
@@ -552,8 +624,8 @@ with tab5:
     st.markdown("---")
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
-    **QA & Sistem Mimarı Ajan Notu:** 
-    1. Otomatik kullanıcı simülasyon motoru 5. Sekmeye eklendi.
-    2. Kur dönüştürme ve teknik indikatör matematiği otonom denetime alındı.
-    3. Canlı API kota limitleri önbellekleme (caching) ile korumaya alındı.
+    **Sistem Mimarı Ajan Notu:** 
+    1. Ar-Ge Ajanının Araştırma ve Kod Denetimi becerileri geri yüklendi.
+    2. QA Kullanıcı Simülasyon motoru ile birleştirilerek tek çatı altında toplandı.
+    3. Tüm seçim kutuları (selectbox) ve buton tuşları çakışmasız hale getirildi.
     """)
