@@ -301,7 +301,24 @@ with tab1:
         m3.metric("Açık Pozisyon K/Z ($)", f"${t_deger - t_maliyet:,.2f}")
         m4.metric("Satış K/Z ($)", f"${gerceklesen_kz / kurlar['USD']:,.2f}")
         m5.metric("Toplam Temettü ($)", f"${t_temettu / kurlar['USD']:,.2f}")
-        if ozet_hisse: st.dataframe(pd.DataFrame(ozet_hisse), width='stretch')
+        
+        # --- ARAYÜZ YENİLİĞİ: 3 KAZAN GÖRSEL PASTA GRAFİĞİ ---
+        if ozet_hisse:
+            df_ozet_h = pd.DataFrame(ozet_hisse)
+            col_g1, col_g2 = st.columns([2, 1])
+            with col_g1:
+                st.dataframe(df_ozet_h, width='stretch')
+            with col_g2:
+                fig_kazan = px.pie(
+                    df_ozet_h, 
+                    names='Kazan', 
+                    values='Güncel Değer ($)', 
+                    title='🎨 Hisse 3 Kazan Dağılımı',
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig_kazan.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=250)
+                st.plotly_chart(fig_kazan, use_container_width=True)
 
         st.markdown("---")
         st.subheader("📜 Tüm Geçmiş Hisse İşlem Kayıtları")
@@ -499,7 +516,7 @@ with tab5:
             # yfinance Test
             try:
                 t_y = yf.Ticker("USDTRY=X").fast_info.get('lastPrice', None)
-                if t_y: st.success("✅ **Yahoo Finance API:** Döviz/BIST Bağlantısı Aktif")
+                if t_y: st.success("✅ **Yahoo Finance API:** Dövis/BIST Bağlantısı Aktif")
                 else: st.warning("⚠️ **Yahoo Finance API:** Anlık veri gecikmeli")
             except: st.error("❌ **Yahoo Finance API:** Bağlantı hatası!")
             
@@ -513,7 +530,7 @@ with tab5:
         st.markdown("""
         > **Ajanın Gelecek Sürüm (v2.0) İnceleme Notları:**
         > * **Eksik İndikatörler:** Portföydeki varlıkların aşırı alım/satım bölgesinde olup olmadığını göstermek için **RSI (14)** ve **MACD** teknik gösterge çubuğu eklenmeli.
-        > * **Görsel/Arayüz Eksiği:** Portföyün 3 Kazan dağılımını gösteren görsel bir **Pasta Grafiği (Plotly)** ana sekmeye eklenmeli.
+        > * **Görsel/Arayüz Eksiği (TAMAMLANDI ✅):** Portföyün 3 Kazan dağılımını gösteren görsel Pasta Grafiği ana sekmeye eklendi.
         > * **Eksik Sekme Önerisi:** Yaklaşan BIST temettü tarihlerini listeleyen bir **'📅 Temettü Takvimi'** sekmesi eklenmeli.
         """)
 
