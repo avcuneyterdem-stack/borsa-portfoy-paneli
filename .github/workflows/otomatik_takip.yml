@@ -1,0 +1,36 @@
+name: Gece Borsa ve Kripto Takip Botu
+
+on:
+  schedule:
+    # Türkiye saati ile her gece 23:30 (UTC 20:30)
+    - cron: '30 20 * * *'
+  workflow_dispatch: # İstediğiniz zaman elle tetikleyebilmeniz için
+
+jobs:
+  run-tracker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodları Depodan Çek
+        uses: actions/checkout@v3
+
+      - name: Python Ortamını Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Gerekli Kütüphaneleri Yükle
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Otomatik Takip Scriptini Çalıştır
+        run: python otomatik_takip.py
+
+      - name: Güncellenen Verileri GitHub'a Geri Yükle
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          git add .
+          git diff-index --quiet HEAD || git commit -m "🤖 Gece otomatik bilanço güncellemesi [skip ci]"
+          git push
