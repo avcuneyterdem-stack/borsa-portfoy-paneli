@@ -4,5 +4,4 @@ yfinance
 requests
 plotly
 openpyxl
-schedule
 streamlit-searchbox
