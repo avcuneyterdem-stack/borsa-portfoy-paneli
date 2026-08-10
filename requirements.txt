@@ -1,7 +1,10 @@
-streamlit
-pandas
-yfinance
-requests
-plotly
-openpyxl
-streamlit-searchbox
+streamlit>=1.36
+pandas>=2.2
+numpy>=1.26
+yfinance>=0.2.40
+openpyxl>=3.1
+requests>=2.31
+plotly>=5.20
+psutil>=5.9
+streamlit-searchbox>=0.1.15
+pytest>=8.0

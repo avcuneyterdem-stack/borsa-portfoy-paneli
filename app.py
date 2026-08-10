@@ -1,805 +1,897 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import datetime
-import pytz
+"""Global Ajan Portföy Paneli — Streamlit arayüzü.
+
+Para hesaplarının tamamı portfoy_core içindedir ve testlidir. Bu dosya
+yalnızca üç işi yapar: diskten okuma/yazma, piyasa verisi çekme ve çizim.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import datetime as dt
+import glob
+import json
+import logging
 import os
-import requests
 import time
+from zoneinfo import ZoneInfo
+
+import pandas as pd
 import plotly.express as px
+import requests
+import streamlit as st
 import streamlit.components.v1 as components
+import yfinance as yf
 from streamlit_searchbox import st_searchbox
 
-# --- SAYFA YAPILANDIRMASI ---
-st.set_page_config(
-    page_title="Global Ajan Portföy Paneli",
-    page_icon="🌍",
-    layout="wide"
-)
+import portfoy_core as pc
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+kayitci = logging.getLogger("portfoy")
+
+st.set_page_config(page_title="Global Ajan Portföy Paneli", page_icon="🌍", layout="wide")
 
 EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
 EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
-TSI = pytz.timezone('Europe/Istanbul')
-
-LOAD_ERROR_HISSE = False
-LOAD_ERROR_KRIPTO = False
+YEDEK_SAYISI = 10
+TSI = ZoneInfo("Europe/Istanbul")
+BINANCE = "https://api.binance.com"
+TEMEL_PARA_BIRIMLERI = ("USD", "EUR", "GBP")
 
 if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
 
-# YK-1 DÜZELTMESİ: Islem_Kuru_USDTRY Şemaya Eklendi
-REQUIRED_COLUMNS = ["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Islem_Kuru_USDTRY", "Borsa_PB"]
 
-def kazan_format_temizle(kazan_metni):
-    kazan_str = str(kazan_metni)
-    if "A Kazanı" in kazan_str: return "A Kazanı (%50 - Sakin Liman)"
-    elif "B Kazanı" in kazan_str: return "B Kazanı (%40 - Büyüme)"
-    elif "C Kazanı" in kazan_str: return "C Kazanı (%10 - Agresif)"
-    return kazan_str
+@st.cache_data(show_spinner=False, max_entries=8)
+def _excel_oku(dosya, _degisiklik_zamani):
+    return pd.read_excel(dosya)
 
-def veri_yukle(dosya_adi):
-    global LOAD_ERROR_HISSE, LOAD_ERROR_KRIPTO
-    if os.path.exists(dosya_adi):
-        try:
-            df = pd.read_excel(dosya_adi)
-            for col in REQUIRED_COLUMNS:
-                if col not in df.columns:
-                    if col == "Para_Birimi": df[col] = "USD"
-                    elif col in ["Islem_Kuru", "Islem_Kuru_USDTRY"]: df[col] = 1.0
-                    elif col == "Borsa_PB": df[col] = "USD"
-                    else: df[col] = 0.0 if col in ["Fiyat", "Adet", "Toplam"] else ""
-            df["Kazan"] = df["Kazan"].apply(kazan_format_temizle)
-            return df[REQUIRED_COLUMNS]
-        except Exception as e:
-            if "hisse" in dosya_adi: LOAD_ERROR_HISSE = True
-            else: LOAD_ERROR_KRIPTO = True
-            st.error(f"⚠️ KRİTİK DOSYA OKUMA HATASI ({dosya_adi}): {e}. Veri güvenliği için yazma kilitlendi!")
-            return pd.DataFrame(columns=REQUIRED_COLUMNS)
-    return pd.DataFrame(columns=REQUIRED_COLUMNS)
 
-def veri_kaydet(df, dosya_adi):
-    if ("hisse" in dosya_adi and LOAD_ERROR_HISSE) or ("kripto" in dosya_adi and LOAD_ERROR_KRIPTO):
-        st.error("❌ Veri tabanı okuma hatası nedeniyle dosya üzerine yazma engellendi!")
-        return False
-    
+def veri_yukle(dosya):
+    hatalar = st.session_state.setdefault("yukleme_hatalari", {})
+    if not os.path.exists(dosya):
+        hatalar[dosya] = None
+        return pc.bos_defter()
     try:
-        if "Sil" in df.columns: df = df.drop(columns=["Sil"])
-        temp_file = f"{dosya_adi}.tmp"
-        backup_file = f"{dosya_adi}.bak"
-        
-        df.to_excel(temp_file, index=False)
-        if os.path.exists(dosya_adi):
-            if os.path.exists(backup_file): os.remove(backup_file)
-            os.rename(dosya_adi, backup_file)
-        os.replace(temp_file, dosya_adi)
+        ham = _excel_oku(dosya, os.path.getmtime(dosya))
+        hatalar[dosya] = None
+        return pc.sema_uygula(ham)
+    except Exception as hata:
+        kayitci.exception("Defter okunamadı: %s", dosya)
+        hatalar[dosya] = str(hata)
+        st.error(
+            f"⚠️ **{dosya} okunamadı:** {hata}\n\n"
+            "Veri kaybını önlemek için bu deftere yazma kilitlendi. "
+            "Dosya başka bir programda açıksa kapatıp sayfayı yenileyin."
+        )
+        return pc.bos_defter()
+
+
+def veri_kaydet(df, dosya):
+    if st.session_state.get("yukleme_hatalari", {}).get(dosya):
+        st.error("❌ Bu defter okunamadığı için yazma engellendi. Önce dosya sorununu giderin.")
+        return False
+    try:
+        pc.atomik_yaz(df, dosya, saklanacak_yedek=YEDEK_SAYISI)
+        _excel_oku.clear()
         return True
-    except Exception as e:
-        st.error(f"❌ Atomik Kayıt Hatası: {e}")
+    except Exception as hata:
+        kayitci.exception("Kayıt başarısız: %s", dosya)
+        st.error(f"❌ Kayıt başarısız: {hata}  \nDosyanın önceki hâli değiştirilmedi.")
         return False
 
-@st.cache_data(ttl=3600)
-def binance_tum_sembolleri_getir():
-    try:
-        res = requests.get("https://api.binance.com/api/v3/ticker/price", timeout=4)
-        if res.status_code == 200:
-            return [item['symbol'] for item in res.json() if item['symbol'].endswith("USDT")]
-    except Exception: pass
-    return []
 
-def canlı_hisse_sorgula(search_term: str):
-    if not search_term or len(search_term.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={search_term}&quotesCount=10&newsCount=0"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        res = requests.get(url, headers=headers, timeout=3)
-        if res.status_code == 200:
-            quotes = res.json().get('quotes', [])
-            sonuclar = []
-            for q in quotes:
-                symbol = q.get('symbol', '')
-                name = q.get('shortname') or q.get('longname') or symbol
-                exch = q.get('exchDisp', '')
-                if symbol: sonuclar.append((f"🌐 {symbol} - {name} ({exch})", symbol))
-            return sonuclar
-    except Exception: pass
-    return [(search_term.upper(), search_term.upper())]
-
-def canlı_kripto_sorgula(search_term: str):
-    if not search_term or len(search_term.strip()) < 1: return []
-    term = search_term.strip().upper()
-    tum_semboller = binance_tum_sembolleri_getir()
-    sonuclar = []
-    for symbol in tum_semboller:
-        coin_name = symbol.replace("USDT", "")
-        if term == coin_name or term in symbol:
-            sonuclar.append((f"🪙 {coin_name} / USDT (Binance)", coin_name))
-        if len(sonuclar) >= 15: break
-    return sonuclar if sonuclar else [(f"🪙 {term} / USDT", term)]
-
-@st.cache_data(ttl=300)
-def doviz_kurlari_getir():
-    kurlar = {"USD": None, "EUR": None, "GBP": None, "TRY": 1.0}
-    try:
-        data = yf.download("USDTRY=X EURTRY=X GBPTRY=X", period="5d", progress=False)['Close']
-        if not data.empty:
-            kurlar["USD"] = float(data['USDTRY=X'].iloc[-1])
-            kurlar["EUR"] = float(data['EURTRY=X'].iloc[-1])
-            kurlar["GBP"] = float(data['GBPTRY=X'].iloc[-1])
-    except Exception: pass
-    return kurlar
-
-def wilder_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0))
-    loss = (-delta.where(delta < 0, 0))
-    avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-@st.cache_data(ttl=120)
-def toplu_piyasa_verisi_cek(symbol_list):
-    if not symbol_list: return {}
-    duzeltilmis = [hisse_kod_duzelt(s) for s in symbol_list if "USDT" not in s and "-" not in s]
-    duzeltilmis = list(set(duzeltilmis))
-    sonuc = {}
-    if duzeltilmis:
-        try:
-            data = yf.download(duzeltilmis, period="60d", group_by='ticker', progress=False)
-            for sym in duzeltilmis:
-                try:
-                    df = data[sym] if len(duzeltilmis) > 1 else data
-                    df = df.dropna(how='all')
-                    if not df.empty and len(df) >= 2:
-                        last_price = float(df['Close'].iloc[-1])
-                        prev_close = float(df['Close'].iloc[-2])
-                        rsi_series = wilder_rsi(df['Close'], 14)
-                        son_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else None
-                        
-                        if son_rsi and son_rsi > 70: rsi_d = "⚠️ Aşırı Alım"
-                        elif son_rsi and son_rsi < 30: rsi_d = "🟢 Aşırı Satım"
-                        else: rsi_d = "⚖️ Nötr"
-                        
-                        sonuc[sym] = {
-                            "fiyat": last_price,
-                            "degisim": ((last_price - prev_close) / prev_close) * 100,
-                            "rsi": round(son_rsi, 2) if son_rsi else None,
-                            "rsi_durum": rsi_d
-                        }
-                except Exception: pass
-        except Exception: pass
-    return sonuc
-
-def hisse_kod_duzelt(hisse_kodu):
-    kod = str(hisse_kodu).strip().upper()
-    if kod.endswith(".IS") or "-" in kod or "USDT" in kod: return kod
-    if kod in ["THYAO", "GARAN", "KCHOL", "TUPRS", "SAHOL", "AKBNK", "YKBNK", "BIMAS", "SISE", "EREGL", "ASELS", "ISCTR"]:
-        return f"{kod}.IS"
-    return kod
-
-def hisse_detay_getir(hisse_kodu):
-    kod = hisse_kod_duzelt(hisse_kodu)
-    try:
-        t = yf.Ticker(kod)
-        pb = t.fast_info.get('currency', 'USD')
-        if not pb: pb = "TRY" if kod.endswith(".IS") else "USD"
-        fiyat = t.fast_info.get('lastPrice', None)
-        ad = t.info.get('shortName', kod)
-        return kod, fiyat, ad, pb
-    except Exception:
-        fallback_pb = "TRY" if kod.endswith(".IS") else "USD"
-        return kod, None, kod, fallback_pb
-
-def binance_fiyat_getir(symbol):
-    temiz = symbol.replace("USDT", "").replace("-USD", "").strip().upper() + "USDT"
-    try:
-        res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={temiz}", timeout=2)
-        if res.status_code == 200: return float(res.json()['price'])
-    except Exception: pass
+def _hizli_al(hizli_bilgi, *adlar):
+    for ad in adlar:
+        with contextlib.suppress(Exception):
+            deger = hizli_bilgi[ad]
+            if deger is not None:
+                return deger
+        with contextlib.suppress(Exception):
+            deger = getattr(hizli_bilgi, ad)
+            if deger is not None and not callable(deger):
+                return deger
     return None
 
-def tv_sembol_donustur(hisse_kodu, kripto_mu=False):
-    kod = hisse_kodu.strip().upper()
-    if kripto_mu or "USDT" in kod or kod in ["BTC", "ETH", "SOL"]:
-        return f"BINANCE:{kod.replace('USDT', '')}USDT"
-    if kod.endswith(".IS"): return f"BIST:{kod.replace('.IS', '')}"
-    return f"NASDAQ:{kod}"
 
-def tradingview_mini_widget(symbol):
+@st.cache_data(ttl=300, show_spinner=False)
+def kurlari_getir(para_birimleri):
+    kurlar = {"TRY": 1.0}
+    istenen = [pb for pb in sorted(set(para_birimleri) | set(TEMEL_PARA_BIRIMLERI)) if pb != "TRY"]
+    for pb in istenen:
+        kurlar[pb] = None
+    if not istenen:
+        return kurlar
+
+    semboller = [f"{pb}TRY=X" for pb in istenen]
+    try:
+        veri = yf.download(semboller, period="5d", progress=False, auto_adjust=False)["Close"]
+        for pb, sembol in zip(istenen, semboller):
+            try:
+                seri = veri[sembol] if len(semboller) > 1 else veri
+                seri = seri.dropna()
+                if not seri.empty:
+                    kurlar[pb] = float(seri.iloc[-1])
+            except (KeyError, IndexError, TypeError, ValueError):
+                kayitci.warning("Kur çekilemedi: %s", sembol)
+    except Exception:
+        kayitci.exception("Kur servisi yanıt vermedi")
+    return kurlar
+
+
+@st.cache_data(ttl=21600, show_spinner=False, max_entries=512)
+def sembol_meta(kod):
+    meta = {"borsa_pb": pc.varsayilan_borsa_pb(kod), "piyasa_degeri": None}
+    try:
+        hizli = yf.Ticker(kod).fast_info
+        meta["borsa_pb"] = pc.varsayilan_borsa_pb(kod, _hizli_al(hizli, "currency"))
+        meta["piyasa_degeri"] = _hizli_al(hizli, "market_cap", "marketCap")
+    except Exception:
+        kayitci.warning("Sembol bilgisi alınamadı: %s", kod)
+    return meta
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def hisse_piyasa_verisi(semboller):
+    kodlar = sorted({pc.sembol_normalize(s) for s in semboller if str(s).strip()})
+    if not kodlar:
+        return {}
+    sonuc = {}
+    try:
+        veri = yf.download(
+            kodlar, period="90d", group_by="ticker",
+            auto_adjust=False, progress=False, threads=True,
+        )
+    except Exception:
+        kayitci.exception("Toplu fiyat çekimi başarısız")
+        return {}
+
+    for kod in kodlar:
+        try:
+            cerceve = veri if len(kodlar) == 1 else veri[kod]
+            kapanis = cerceve["Close"].dropna()
+            if len(kapanis) < 2:
+                continue
+            rsi_serisi = pc.wilder_rsi(kapanis)
+            son_rsi = rsi_serisi.iloc[-1]
+            sonuc[kod] = {
+                "fiyat": float(kapanis.iloc[-1]),
+                "degisim": (float(kapanis.iloc[-1]) / float(kapanis.iloc[-2]) - 1) * 100,
+                "rsi": None if pd.isna(son_rsi) else round(float(son_rsi), 2),
+            }
+        except (KeyError, IndexError, TypeError, ValueError):
+            kayitci.warning("Fiyat verisi ayrıştırılamadı: %s", kod)
+    return sonuc
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def binance_sembolleri():
+    try:
+        yanit = requests.get(f"{BINANCE}/api/v3/ticker/price", timeout=5)
+        yanit.raise_for_status()
+        return sorted({s["symbol"] for s in yanit.json() if s["symbol"].endswith("USDT")})
+    except Exception:
+        kayitci.exception("Binance sembol listesi alınamadı")
+        return []
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def kripto_piyasa_verisi(semboller):
+    gecerli_liste = set(binance_sembolleri())
+    parite = {f"{str(s).upper().replace('USDT', '')}USDT": str(s).upper() for s in semboller}
+    sorulacak = [p for p in sorted(parite) if p in gecerli_liste]
+    if not sorulacak:
+        return {}
+    try:
+        yanit = requests.get(
+            f"{BINANCE}/api/v3/ticker/24hr",
+            params={"symbols": json.dumps(sorulacak, separators=(",", ":"))},
+            timeout=6,
+        )
+        yanit.raise_for_status()
+        return {
+            parite[kayit["symbol"]]: {
+                "fiyat": float(kayit["lastPrice"]),
+                "degisim": float(kayit["priceChangePercent"]),
+            }
+            for kayit in yanit.json() if kayit["symbol"] in parite
+        }
+    except Exception:
+        kayitci.exception("Kripto fiyatları alınamadı")
+        return {}
+
+
+@st.cache_data(ttl=600, show_spinner=False, max_entries=128)
+def kripto_rsi(sembol):
+    try:
+        yanit = requests.get(
+            f"{BINANCE}/api/v3/klines",
+            params={"symbol": f"{sembol.upper()}USDT", "interval": "1d", "limit": 90},
+            timeout=6,
+        )
+        yanit.raise_for_status()
+        kapanis = pd.Series([float(mum[4]) for mum in yanit.json()])
+        if len(kapanis) < 20:
+            return None
+        son = pc.wilder_rsi(kapanis).iloc[-1]
+        return None if pd.isna(son) else round(float(son), 2)
+    except Exception:
+        kayitci.warning("Kripto RSI alınamadı: %s", sembol)
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=256)
+def temettu_bilgisi(kod):
+    try:
+        varlik = yf.Ticker(kod)
+        bilgi = varlik.info
+        return {
+            "yillik_temettu": bilgi.get("dividendRate"),
+            "fiyat": bilgi.get("currentPrice") or bilgi.get("previousClose"),
+            "ham_yield": bilgi.get("dividendYield"),
+            "ex_tarih": bilgi.get("exDividendDate"),
+            "sektor": bilgi.get("sector"),
+            "para_birimi": bilgi.get("currency", "USD"),
+        }
+    except Exception as hata:
+        kayitci.warning("Temettü bilgisi alınamadı: %s (%s)", kod, hata)
+        return None
+
+
+def hisse_ara(arama):
+    if not str(arama).strip():
+        return []
+    try:
+        yanit = requests.get(
+            "https://query2.finance.yahoo.com/v1/finance/search",
+            params={"q": arama, "quotesCount": 10, "newsCount": 0},
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=4,
+        )
+        yanit.raise_for_status()
+        sonuclar = []
+        for kayit in yanit.json().get("quotes", []):
+            sembol = kayit.get("symbol")
+            if not sembol:
+                continue
+            ad = kayit.get("shortname") or kayit.get("longname") or sembol
+            borsa = kayit.get("exchDisp", "")
+            sonuclar.append((f"🌐 {sembol} — {ad} ({borsa})", f"{sembol}|{borsa}"))
+        return sonuclar
+    except Exception:
+        kayitci.warning("Hisse araması başarısız: %s", arama)
+        return [(f"{str(arama).upper()} (arama servisi yanıt vermedi)", f"{str(arama).upper()}|")]
+
+
+def kripto_ara(arama):
+    terim = str(arama).strip().upper()
+    if not terim:
+        return []
+    semboller = binance_sembolleri()
+    baslayanlar = [s for s in semboller if s.startswith(terim)]
+    icerenler = [s for s in semboller if terim in s and not s.startswith(terim)]
+    return [
+        (f"🪙 {s[:-4]} / USDT", s[:-4])
+        for s in (baslayanlar + icerenler)[:15]
+    ] or [(f"🪙 {terim} / USDT (listede yok)", terim)]
+
+
+def secimi_coz(secim):
+    if not secim:
+        return "", ""
+    sembol, _, borsa = str(secim).partition("|")
+    return sembol.strip().upper(), borsa.strip()
+
+
+def pozisyon_tablosu(ozet, fiyat_saglayici, kurlar, kripto_mu=False):
+    satirlar, toplam_maliyet, toplam_deger, fiyatsiz = [], 0.0, 0.0, 0
+    for sembol, pozisyon in sorted(pc.acik_pozisyonlar(ozet).items()):
+        maliyet = pozisyon["maliyet_usd"]
+        piyasa = fiyat_saglayici(sembol, pozisyon)
+        canli_usd = piyasa.get("fiyat_usd")
+        toplam_maliyet += maliyet
+
+        if canli_usd is None:
+            fiyatsiz += 1
+            deger_metni = kz_metni = fiyat_metni = "N/A"
+        else:
+            deger = pozisyon["adet"] * canli_usd
+            toplam_deger += deger
+            fiyat_metni = f"${canli_usd:,.2f}"
+            deger_metni = f"${deger:,.2f}"
+            kz_metni = f"${deger - maliyet:,.2f}"
+
+        satirlar.append({
+            "Varlık": sembol,
+            "Kazan": piyasa.get("kazan", ""),
+            "Adet": round(pozisyon["adet"], 6 if kripto_mu else 4),
+            "Ort. Maliyet ($)": round(maliyet / pozisyon["adet"], 4 if kripto_mu else 2),
+            "Canlı Fiyat ($)": fiyat_metni,
+            "Güncel Değer ($)": deger_metni,
+            "Açık K/Z ($)": kz_metni,
+            "RSI (14)": piyasa.get("rsi") if piyasa.get("rsi") is not None else "—",
+            "RSI Durumu": pc.rsi_durum(piyasa.get("rsi")),
+        })
+    return pd.DataFrame(satirlar), toplam_maliyet, toplam_deger, fiyatsiz
+
+
+def ozet_uyarilari(ozet, fiyatsiz):
+    if ozet["hesaplanamayan_satir"]:
+        st.warning(f"⚠️ {ozet['hesaplanamayan_satir']} satır eksik/bozuk veri nedeniyle hesaba katılamadı.")
+    if ozet["eslesmeyen_satis"]:
+        st.warning(
+            f"⚠️ {ozet['eslesmeyen_satis']} satış kaydı eldeki pozisyonla eşleşmedi "
+            "(elde olandan fazla veya alım kaydı olmayan satış). Gerçekleşen K/Z eksik olabilir."
+        )
+    if ozet["tahmini_kur_satir"]:
+        st.info(
+            f"ℹ️ {ozet['tahmini_kur_satir']} eski kayıtta işlem anındaki kur bulunmadığı için "
+            "bugünkü kur kullanıldı; bu satırların dolar maliyeti yaklaşıktır."
+        )
+    if ozet["tarihsiz_satir"]:
+        st.info(f"ℹ️ {ozet['tarihsiz_satir']} kaydın tarihi okunamadı; sıralamada en başa alındı.")
+    if fiyatsiz:
+        st.warning(f"⚠️ {fiyatsiz} varlığın canlı fiyatı çekilemedi; ilgili satırlar N/A ve toplamlara dahil değil.")
+
+
+def metrik_satiri(ozet, toplam_maliyet, toplam_deger, gelir_etiketi):
+    kutu = st.columns(5)
+    kutu[0].metric("Toplam Maliyet ($)", f"${toplam_maliyet:,.2f}")
+    kutu[1].metric("Güncel Değer ($)", f"${toplam_deger:,.2f}" if toplam_deger else "N/A")
+    kutu[2].metric(
+        "Açık Pozisyon K/Z ($)",
+        f"${toplam_deger - toplam_maliyet:,.2f}" if toplam_deger else "N/A",
+    )
+    kutu[3].metric("Gerçekleşen K/Z ($)", f"${ozet['gerceklesen_kz_usd']:,.2f}")
+    kutu[4].metric(gelir_etiketi, f"${ozet['gelir_usd']:,.2f}")
+
+
+def silme_bolumu(df, dosya, anahtar):
+    st.subheader("📜 Tüm İşlem Kayıtları")
+    duzenlenebilir = df.copy()
+    duzenlenebilir.insert(0, "Sil", False)
+    duzenlenmis = st.data_editor(
+        duzenlenebilir,
+        column_config={"Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False)},
+        disabled=[s for s in duzenlenebilir.columns if s != "Sil"],
+        hide_index=True, use_container_width=True, key=anahtar,
+    )
+    secilenler = duzenlenmis[duzenlenmis["Sil"]]
+    if not secilenler.empty and st.button(
+        f"🗑️ Seçilen {len(secilenler)} kaydı kalıcı olarak sil", type="primary", key=f"{anahtar}_sil"
+    ):
+        kalan = duzenlenmis[~duzenlenmis["Sil"]].drop(columns=["Sil"])
+        if veri_kaydet(kalan, dosya):
+            st.success(f"✅ {len(secilenler)} kayıt silindi (önceki hâli yedeklendi).")
+            st.rerun()
+
+
+def mukerrer_mi(imza):
+    return st.session_state.get("son_kayit_imzasi") == imza
+
+
+def tradingview_html(ic_yapilandirma, betik, yukseklik):
     return f"""
-    <div class="tradingview-widget-container">
-      <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-      {{ "symbol": "{symbol}", "width": "100%", "height": "210", "locale": "tr", "dateRange": "1M", "colorTheme": "dark", "isTransparent": false }}
-      </script>
-    </div>
-    """
+    <div class="tradingview-widget-container" style="height:{yukseklik}px;width:100%">
+      <div class="tradingview-widget-container__widget" id="tv_kutu"></div>
+      <script type="text/javascript" src="{betik}" async>{ic_yapilandirma}</script>
+    </div>"""
 
-def tradingview_makro_takvim_widget():
-    return """
-    <div class="tradingview-widget-container">
-      <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-      { "colorTheme": "dark", "isTransparent": false, "width": "100%", "height": "450", "locale": "tr", "importanceFilter": "0,1", "currencyFilter": "USD,EUR,TRY" }
-      </script>
-    </div>
-    """
 
-# --- ÜST BİLGİ BARI ---
+# ===========================================================================
+# VERİ HAZIRLIĞI
+# ===========================================================================
+
+defter_hisse = veri_yukle(EXCEL_HISSE)
+defter_kripto = veri_yukle(EXCEL_KRIPTO)
+
+hisse_sembolleri = tuple(sorted(set(defter_hisse["Hisse"]) - {""}))
+kripto_sembolleri = tuple(sorted(set(defter_kripto["Hisse"]) - {""}))
+
+_sonek_birimleri = {pc.varsayilan_borsa_pb(s) for s in hisse_sembolleri}
+gereken_birimler = (
+    set(defter_hisse["Para_Birimi"]) | set(defter_kripto["Para_Birimi"])
+    | {pc.KURUSLU_BIRIMLER.get(b, b).upper() for b in _sonek_birimleri}
+)
+kurlar = kurlari_getir(tuple(sorted(pb for pb in gereken_birimler if pb)))
+
+
+def borsa_pb_getir(sembol, pozisyon=None):
+    meta = sembol_meta(pc.sembol_normalize(sembol))
+    return meta["borsa_pb"] or (pozisyon or {}).get("borsa_pb") or "USD"
+
+hisse_fiyatlari = hisse_piyasa_verisi(hisse_sembolleri)
+kripto_fiyatlari = kripto_piyasa_verisi(kripto_sembolleri)
+
+ozet_hisse = pc.pozisyon_ozeti(defter_hisse, kurlar)
+ozet_kripto = pc.pozisyon_ozeti(defter_kripto, kurlar)
+
+
+def hisse_piyasa_saglayici(sembol, pozisyon):
+    kod = pc.sembol_normalize(sembol)
+    piyasa = hisse_fiyatlari.get(kod, {})
+    return {
+        "fiyat_usd": pc.fiyati_usd_yap(piyasa.get("fiyat"), borsa_pb_getir(sembol, pozisyon), kurlar),
+        "rsi": piyasa.get("rsi"),
+        "kazan": pc.kazan_sinifi(piyasa_degeri=sembol_meta(kod)["piyasa_degeri"]),
+    }
+
+
+def kripto_piyasa_saglayici(sembol, pozisyon):
+    piyasa = kripto_fiyatlari.get(sembol, {})
+    return {
+        "fiyat_usd": piyasa.get("fiyat"),
+        "rsi": kripto_rsi(sembol) if piyasa else None,
+        "kazan": pc.kazan_sinifi(kripto_mu=True, sembol=sembol),
+    }
+
+
+# ===========================================================================
+# ÜST BİLGİ
+# ===========================================================================
+
 st.title("🌍 Global Ajan Portföy Paneli")
 
-st.markdown("### 💱 Canlı Döviz Kurları & Küresel Endeksler")
-col_k1, col_k2, col_k3 = st.columns(3)
-with col_k1: components.html(tradingview_mini_widget("FX_IDC:USDTRY"), height=220)
-with col_k2: components.html(tradingview_mini_widget("FOREXCOM:SPXUSD"), height=220)
-with col_k3: components.html(tradingview_mini_widget("FOREXCOM:NSXUSD"), height=220)
+if kurlar.get("USD") is None:
+    st.warning(
+        "⚠️ **Canlı dolar kuru çekilemedi.** TL/EUR/GBP cinsinden işlemler dolara "
+        "çevrilemiyor; ilgili satırlar hesaba katılmıyor. Dolar cinsinden işlemler "
+        "etkilenmez ve kaydedilebilir."
+    )
 
-kurlar = doviz_kurlari_getir()
-if kurlar["USD"] is None:
-    st.warning("⚠️ Canlı Dolar Kuru çekilemedi! Kur dönüşümlü hesaplamalar geçici olarak durduruldu.")
+st.markdown("### 💱 Canlı Döviz Kurları & Küresel Endeksler")
+ust_kutu = st.columns(3)
+for kutu, sembol in zip(ust_kutu, ["FX_IDC:USDTRY", "FOREXCOM:SPXUSD", "FOREXCOM:NSXUSD"]):
+    with kutu:
+        components.html(
+            tradingview_html(
+                json.dumps({"symbol": sembol, "width": "100%", "height": 210, "locale": "tr",
+                            "dateRange": "1M", "colorTheme": "dark", "isTransparent": False}),
+                "https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js",
+                220,
+            ),
+            height=220,
+        )
+
+tablo_hisse, hisse_maliyet, hisse_deger, hisse_fiyatsiz = pozisyon_tablosu(
+    ozet_hisse, hisse_piyasa_saglayici, kurlar
+)
+tablo_kripto, kripto_maliyet, kripto_deger, kripto_fiyatsiz = pozisyon_tablosu(
+    ozet_kripto, kripto_piyasa_saglayici, kurlar, kripto_mu=True
+)
+toplam_maliyet = hisse_maliyet + kripto_maliyet
+toplam_deger = hisse_deger + kripto_deger
+
+if toplam_maliyet:
+    st.markdown("### 💼 Toplam Portföy (Hisse + Kripto)")
+    birlesik = st.columns(4)
+    birlesik[0].metric("Toplam Maliyet ($)", f"${toplam_maliyet:,.2f}")
+    birlesik[1].metric("Güncel Değer ($)", f"${toplam_deger:,.2f}" if toplam_deger else "N/A")
+    birlesik[2].metric(
+        "Açık K/Z ($)", f"${toplam_deger - toplam_maliyet:,.2f}" if toplam_deger else "N/A",
+        delta=f"{(toplam_deger / toplam_maliyet - 1) * 100:,.2f}%" if toplam_deger and toplam_maliyet else None,
+    )
+    birlesik[3].metric(
+        "Gerçekleşen K/Z ($)",
+        f"${ozet_hisse['gerceklesen_kz_usd'] + ozet_kripto['gerceklesen_kz_usd']:,.2f}",
+    )
 
 st.markdown("---")
 
-# --- YAN MENÜ ---
+# ===========================================================================
+# YAN MENÜ
+# ===========================================================================
+
 st.sidebar.header("⚙️ Portföy & Veri Yönetimi")
-col_y1, col_y2 = st.sidebar.columns(2)
-with col_y1:
-    if os.path.exists(EXCEL_HISSE):
-        with open(EXCEL_HISSE, "rb") as file: st.download_button("📥 Hisse Excel", file, file_name="hisse_portfoy.xlsx")
-with col_y2:
-    if os.path.exists(EXCEL_KRIPTO):
-        with open(EXCEL_KRIPTO, "rb") as file: st.download_button("📥 Kripto Excel", file, file_name="kripto_portfoy.xlsx")
+indirme = st.sidebar.columns(2)
+for kutu, dosya, etiket in [(indirme[0], EXCEL_HISSE, "Hisse"), (indirme[1], EXCEL_KRIPTO, "Kripto")]:
+    if os.path.exists(dosya):
+        with kutu, open(dosya, "rb") as akis:
+            st.download_button(f"📥 {etiket} Excel", akis, file_name=dosya)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🛡️ 3 Kazanlı Sermaye Stratejisi")
+st.sidebar.info("**A Kazanı (%50):** Dev şirketler & BTC/ETH")
+st.sidebar.success("**B Kazanı (%40):** Büyüme şirketleri")
+st.sidebar.warning("**C Kazanı (%10):** Agresif hisseler & altcoinler")
+st.sidebar.caption("Sınıflandırma kayıt anında dondurulmaz; her açılışta güncel piyasa değerinden hesaplanır.")
 
 st.sidebar.markdown("---")
 st.sidebar.header("📜 İşlem Geçmişi & Filtreler")
-secilen_gecmis_tur = st.sidebar.radio("Geçmiş Türü:", ["Hisse İşlemleri", "Kripto İşlemleri"], horizontal=True)
-dosya_gecmis = EXCEL_HISSE if "Hisse" in secilen_gecmis_tur else EXCEL_KRIPTO
-df_gecmis_mevcut = veri_yukle(dosya_gecmis)
+gecmis_turu = st.sidebar.radio("Geçmiş Türü:", ["Hisse İşlemleri", "Kripto İşlemleri"], horizontal=True)
+gecmis_defteri = defter_hisse if "Hisse" in gecmis_turu else defter_kripto
 
-if not df_gecmis_mevcut.empty:
-    hisse_filtre = st.sidebar.text_input("🔍 Hisse/Kripto Ara:", "").strip().upper()
-    tip_filtre = st.sidebar.selectbox("🏷️ İşlem Tipi Süzgeci:", ["Tümü", "Sadece AL 🟢", "Sadece SAT 🔴", "Sadece Temettü/Staking 💰"])
-    df_sol_gecmis = df_gecmis_mevcut.copy()
-    if hisse_filtre: df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Hisse"].str.contains(hisse_filtre, case=False, regex=False, na=False)]
-    if tip_filtre == "Sadece AL 🟢": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("AL", regex=False, na=False)]
-    elif tip_filtre == "Sadece SAT 🔴": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("SAT", regex=False, na=False)]
-    # YK-2 DÜZELTMESİ: TEMETTÜ|STAKING Filtresinde regex=True Yapıldı!
-    elif tip_filtre == "Sadece Temettü/Staking 💰": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("TEMETTÜ|STAKING", regex=True, na=False)]
-    
-    with st.sidebar.expander("📂 Filtrelenmiş Kayıtlar (Tıkla/Aç)", expanded=True):
-        st.dataframe(df_sol_gecmis.iloc[::-1][["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Para_Birimi"]], height=300, use_container_width=True)
+if not gecmis_defteri.empty:
+    metin_filtresi = st.sidebar.text_input("🔍 Varlık Ara:", "").strip().upper()
+    tip_filtresi = st.sidebar.selectbox(
+        "🏷️ İşlem Tipi:", ["Tümü", "Sadece AL 🟢", "Sadece SAT 🔴", "Sadece Temettü/Staking 💰"]
+    )
+    suzulmus = gecmis_defteri
+    if metin_filtresi:
+        suzulmus = suzulmus[suzulmus["Hisse"].str.contains(metin_filtresi, regex=False, na=False)]
+    if tip_filtresi != "Tümü":
+        hedef = {"Sadece AL 🟢": pc.AL, "Sadece SAT 🔴": pc.SAT, "Sadece Temettü/Staking 💰": pc.GELIR}[tip_filtresi]
+        suzulmus = suzulmus[suzulmus["Tip"].map(pc.islem_tipi) == hedef]
 
-# --- ANA EKRAN SEKMELERİ ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📈 Hisse Senedi Portföyü (BIST & ABD)", 
-    "🪙 Kripto Varlık Portföyü", 
-    "🤖 AI Araştırmacı Ajanı", 
-    "⚡ Canlı Takip Radarı & Makro Takvim",
-    "💻 Sistem, Ar-Ge & QA Test Ajanı",
-    "📅 Temettü Takvimi"
+    with st.sidebar.expander(f"📂 Filtrelenmiş Kayıtlar ({len(suzulmus)})", expanded=True):
+        st.dataframe(
+            suzulmus.iloc[::-1][["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Para_Birimi"]],
+            height=300, use_container_width=True,
+        )
+
+# ===========================================================================
+# SEKMELER
+# ===========================================================================
+
+sekme1, sekme2, sekme3, sekme4, sekme5, sekme6 = st.tabs([
+    "📈 Hisse Portföyü", "🪙 Kripto Portföyü", "🤖 Grafik Ajanı",
+    "⚡ Canlı Radar & Makro Takvim", "💻 Sistem & QA Ajanı", "📅 Temettü",
 ])
 
-# SEKME 1: HİSSE PORTFÖYÜ
-with tab1:
-    st.title("📈 Gerçekleşen Hisse Senedi İşlem Kaydı (BIST / Nasdaq / NYSE)")
-    col_s1, col_s2 = st.columns([1, 1])
-    with col_s1:
-        secilen_symbol = st_searchbox(canlı_hisse_sorgula, key="hisse_searchbox", placeholder="ABD veya BIST Hisse Kodu (Örn: AAPL, NVDA, THYAO)...")
-        girilen_hisse = secilen_symbol.strip().upper() if secilen_symbol else ""
-
-    borsa_pb = "USD"
-    with col_s2:
-        if girilen_hisse:
-            tam_kod, canli_f, sirket_adi, borsa_pb = hisse_detay_getir(girilen_hisse)
-            if canli_f: 
-                st.success(f"✅ **{sirket_adi}** | Anlık: **{canli_f:,.2f} {borsa_pb}**")
+# --- SEKME 1: HİSSE --------------------------------------------------------
+with sekme1:
+    st.subheader("📈 Hisse Senedi İşlem Kaydı (BIST / Nasdaq / NYSE)")
+    ust = st.columns([1, 1])
+    with ust[0]:
+        secim = st_searchbox(hisse_ara, key="hisse_arama", placeholder="Hisse kodu (AAPL, NVDA, THYAO)...")
+        secilen_hisse, secilen_borsa = secimi_coz(secim)
+    with ust[1]:
+        borsa_pb = "USD"
+        if secilen_hisse:
+            kod = pc.sembol_normalize(secilen_hisse)
+            borsa_pb = sembol_meta(kod)["borsa_pb"]
+            anlik = hisse_piyasa_verisi((secilen_hisse,)).get(kod, {}).get("fiyat")
+            if anlik:
+                st.success(f"✅ **{secilen_hisse}** | Anlık: **{anlik:,.2f} {borsa_pb}**")
             else:
-                st.warning(f"⚠️ **{girilen_hisse}** canlı fiyatı çekilemedi, ancak manuel ekleyebilirsiniz.")
+                st.warning(f"⚠️ **{secilen_hisse}** için canlı fiyat yok; işlem yine de kaydedilebilir.")
 
-    with st.form("hisse_formu", clear_on_submit=False):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1: tip = st.selectbox("İşlem Tipi", ["AL 🟢", "SAT 🔴", "TEMETTÜ 💰"], key="h_tip")
-        with col2: para_birimi = st.selectbox("Girdiğiniz Para Birimi", ["USD ($)", "TRY (₺)", "EUR (€)", "GBP (£)"], key="h_pb")
-        with col3: fiyat = st.number_input("İşlem Fiyatı / Tutar:", min_value=0.0, value=None, placeholder="Örn: 220.50", step=0.01, format="%.4f", key="h_f")
-        with col4: adet = st.number_input("Adet:", min_value=0.0001, value=1.0, step=1.0, format="%.4f", key="h_a")
-        c1, c2, c3 = st.checkbox("🛡️ Stratejime uygun.", key="h_c1"), st.checkbox("🧠 Duygusal değil.", key="h_c2"), st.checkbox("📱 Kurumda gerçekleşti.", key="h_c3")
-        
-        form_submitted = st.form_submit_button("💾 Hisse İşlemini Kaydet")
-        if form_submitted:
-            if not girilen_hisse: st.error("❌ Hisse kodu seçilmedi!")
-            elif not (c1 and c2 and c3): st.error("❌ Lütfen 3 onay kutusunu da işaretleyin!")
-            elif fiyat is None or fiyat <= 0: st.error("❌ Geçerli bir işlem fiyatı girin!")
-            elif kurlar["USD"] is None: st.error("❌ Canlı kur çekilemediği için kayıt yapılamıyor!")
+    with st.form("hisse_formu", clear_on_submit=True):
+        alan = st.columns(4)
+        tip = alan[0].selectbox("İşlem Tipi", ["AL 🟢", "SAT 🔴", "TEMETTÜ 💰"])
+        para_birimi = alan[1].selectbox("Girdiğiniz Para Birimi", ["USD ($)", "TRY (₺)", "EUR (€)", "GBP (£)"])
+        fiyat = alan[2].number_input("İşlem Fiyatı / Tutar", min_value=0.0, value=None,
+                                     placeholder="220.50", step=0.01, format="%.4f")
+        adet = alan[3].number_input("Adet", min_value=0.0001, value=1.0, step=1.0, format="%.4f")
+        onaylar = [
+            st.checkbox("🛡️ Stratejime uygun."),
+            st.checkbox("🧠 Duygusal değil."),
+            st.checkbox("📱 Kurumda gerçekleşti."),
+        ]
+
+        if st.form_submit_button("💾 Hisse İşlemini Kaydet"):
+            pb_kodu = para_birimi.split(" ")[0]
+            islem_kuru = kurlar.get(pb_kodu)
+            islem_usdtry = kurlar.get("USD")
+            imza = (secilen_hisse, tip, fiyat, adet, pb_kodu, dt.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"))
+
+            hata = None
+            if not secilen_hisse:
+                hata = "Hisse kodu seçilmedi."
+            elif not all(onaylar):
+                hata = "Üç onay kutusunun da işaretlenmesi gerekiyor."
+            elif fiyat is None or fiyat <= 0:
+                hata = "Geçerli bir işlem fiyatı girin."
+            elif pb_kodu != "USD" and not (islem_kuru and islem_usdtry):
+                hata = f"{pb_kodu} kuru çekilemediği için bu işlem doğru kaydedilemez. Dolar cinsinden girebilirsiniz."
+            elif pc.islem_tipi(tip) is pc.SAT and adet > pc.satilabilir_adet(defter_hisse, secilen_hisse) + 1e-9:
+                hata = (f"Elde {pc.satilabilir_adet(defter_hisse, secilen_hisse):.4f} adet var; "
+                        f"{adet:.4f} adet satılamaz.")
+            elif mukerrer_mi(imza):
+                hata = "Bu işlemi az önce kaydettiniz. Gerçekten tekrarlamak istiyorsanız dakikayı değiştirin."
+
+            if hata:
+                st.error(f"❌ {hata}")
             else:
-                pb_code = para_birimi.split(" ")[0]
-                anlik_islem_kuru = kurlar.get(pb_code, 1.0) if pb_code != "TRY" else 1.0
-                anlik_usdtry_kuru = kurlar["USD"]
-                
-                df = veri_yukle(EXCEL_HISSE)
-                
-                # YY-1 DÜZELTMESİ: st.stop() Kaldırıldı! Sayfa Kesilmesi Engellendi
-                satis_gecerli = True
-                if "SAT" in tip:
-                    mevcut_adet = df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("AL", regex=False, na=False))]["Adet"].sum() - \
-                                 df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("SAT", regex=False, na=False))]["Adet"].sum()
-                    if adet > mevcut_adet:
-                        st.error(f"❌ Elde {mevcut_adet:.4f} adet var. {adet:.4f} adet satılamaz!")
-                        satis_gecerli = False
+                yeni = pd.DataFrame([{
+                    "Tarih": imza[5], "Hisse": secilen_hisse, "Kazan": "", "Tip": tip,
+                    "Fiyat": fiyat, "Adet": adet, "Toplam": fiyat * adet,
+                    "Para_Birimi": pb_kodu,
+                    "Islem_Kuru": islem_kuru if pb_kodu != "USD" else islem_usdtry,
+                    "Islem_USDTRY": islem_usdtry,
+                    "Borsa_PB": borsa_pb, "Borsa": secilen_borsa,
+                }])
+                if veri_kaydet(pd.concat([defter_hisse, yeni], ignore_index=True), EXCEL_HISSE):
+                    st.session_state["son_kayit_imzasi"] = imza
+                    st.success("✅ İşlem, o anki kur birlikte kaydedildi.")
+                    st.rerun()
 
-                if satis_gecerli:
-                    yeni_veri = pd.DataFrame([{
-                        "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
-                        "Hisse": girilen_hisse, "Kazan": "B Kazanı (%40 - Büyüme)", "Tip": tip,
-                        "Fiyat": fiyat, "Adet": adet, "Toplam": fiyat * adet,
-                        "Para_Birimi": pb_code, "Islem_Kuru": anlik_islem_kuru, 
-                        "Islem_Kuru_USDTRY": anlik_usdtry_kuru, "Borsa_PB": borsa_pb
-                    }])
-                    
-                    if veri_kaydet(pd.concat([df, yeni_veri], ignore_index=True), EXCEL_HISSE):
-                        st.success("✅ İşlem Tarihsel Kur ile Başarıyla Kaydedildi!")
-                        st.rerun()
-
-    df_hisse = veri_yukle(EXCEL_HISSE)
-    if not df_hisse.empty:
+    if not defter_hisse.empty:
         st.markdown("---")
-        st.subheader("📊 Canlı Hisse Portföy Durumu (Tarihsel Dolar Maliyeti & Doğru K/Z)")
-        
-        tum_hisseler = df_hisse["Hisse"].unique().tolist()
-        batch_veriler = toplu_piyasa_verisi_cek(tum_hisseler)
-        
-        portfoy_ozet, t_temettu_usd, gerceklesen_kz_usd = {}, 0.0, 0.0
-        
-        # YK-1 DÜZELTMESİ: İşlem Günündeki Gerçek Tarihsel Dolar Maliyeti
-        for _, row in df_hisse.sort_values("Tarih").iterrows():
-            h, t, a, f, pb = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"], row.get("Para_Birimi", "USD")
-            ik = row.get("Islem_Kuru", 1.0)
-            ik_usdtry = row.get("Islem_Kuru_USDTRY", kurlar["USD"] if kurlar["USD"] else 1.0)
-            b_pb = row.get("Borsa_PB", "USD")
-            
-            # Tarihsel Dolar Tutar Hesabı
-            if pb == "USD": islem_maliyet_usd = f * a
-            elif pb == "TRY": islem_maliyet_usd = (f * a) / ik_usdtry
-            else: islem_maliyet_usd = (f * a * ik) / ik_usdtry # EUR/GBP -> TRY -> USD
-            
-            if "TEMETTÜ" in t:
-                t_temettu_usd += islem_maliyet_usd
-                continue
-                
-            if h not in portfoy_ozet:
-                portfoy_ozet[h] = {"Adet": 0.0, "Toplam_Maliyet_USD": 0.0, "Borsa_PB": b_pb}
-                
-            if "AL" in t:
-                portfoy_ozet[h]["Adet"] += a
-                portfoy_ozet[h]["Toplam_Maliyet_USD"] += islem_maliyet_usd
-            elif "SAT" in t:
-                if portfoy_ozet[h]["Adet"] > 0:
-                    ort_maliyet_usd = portfoy_ozet[h]["Toplam_Maliyet_USD"] / portfoy_ozet[h]["Adet"]
-                    gerceklesen_kz_usd += (islem_maliyet_usd - (a * ort_maliyet_usd))
-                    portfoy_ozet[h]["Adet"] -= a
-                    portfoy_ozet[h]["Toplam_Maliyet_USD"] -= (a * ort_maliyet_usd)
+        st.subheader("📊 Açık Pozisyonlar")
+        tablo = tablo_hisse
+        metrik_satiri(ozet_hisse, hisse_maliyet, hisse_deger, "Toplam Temettü ($)")
+        ozet_uyarilari(ozet_hisse, hisse_fiyatsiz)
 
-        ozet_hisse, t_maliyet_usd, t_deger_usd = [], 0.0, 0.0
-        for h, v in portfoy_ozet.items():
-            if v["Adet"] > 0.0001:
-                m_usd = v["Toplam_Maliyet_USD"]
-                tam_kod = hisse_kod_duzelt(h)
-                b_data = batch_veriler.get(tam_kod, {})
-                canli_fiyat = b_data.get("fiyat", None)
-                
-                # YK-3 & YK-4 DÜZELTMESİ: Canlı Dolarlaştırma (EUR/GBP/TRY Tam Desteği)
-                if canli_fiyat and kurlar["USD"]:
-                    _, _, _, borsa_pb_canli = hisse_detay_getir(h)
-                    
-                    if borsa_pb_canli == "TRY": canli_usd = canli_fiyat / kurlar["USD"]
-                    elif borsa_pb_canli == "EUR" and kurlar["EUR"]: canli_usd = (canli_fiyat * kurlar["EUR"]) / kurlar["USD"]
-                    elif borsa_pb_canli == "GBP" and kurlar["GBP"]: canli_usd = (canli_fiyat * kurlar["GBP"]) / kurlar["USD"]
-                    elif borsa_pb_canli == "GBp" and kurlar["GBP"]: canli_usd = ((canli_fiyat / 100.0) * kurlar["GBP"]) / kurlar["USD"] # Londra Pens
-                    else: canli_usd = canli_fiyat # USD
-                    
-                    g_usd = v["Adet"] * canli_usd
-                    kz_usd = g_usd - m_usd
-                    t_maliyet_usd += m_usd
-                    t_deger_usd += g_usd
-                    canli_f_str = f"${canli_usd:,.2f}"
-                    g_deger_str = f"${g_usd:,.2f}"
-                    kz_str = f"${kz_usd:,.2f}"
-                else:
-                    canli_f_str, g_deger_str, kz_str = "N/A", "N/A", "N/A"
-                
-                ozet_hisse.append({
-                    "Hisse": h, "Adet": round(v["Adet"], 4),
-                    "Ort. Maliyet ($)": round(m_usd / v["Adet"], 2),
-                    "Canlı Fiyat ($)": canli_f_str,
-                    "Güncel Değer ($)": g_deger_str,
-                    "Açık Kâr/Zarar ($)": kz_str,
-                    "Wilder RSI (14)": b_data.get("rsi", "N/A"),
-                    "RSI Durumu": b_data.get("rsi_durum", "N/A")
-                })
-
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Toplam Maliyet ($)", f"${t_maliyet_usd:,.2f}" if t_maliyet_usd else "N/A")
-        m2.metric("Güncel Değer ($)", f"${t_deger_usd:,.2f}" if t_deger_usd else "N/A")
-        m3.metric("Açık Pozisyon K/Z ($)", f"${t_deger_usd - t_maliyet_usd:,.2f}" if t_deger_usd else "N/A")
-        m4.metric("Satış K/Z ($)", f"${gerceklesen_kz_usd:,.2f}")
-        m5.metric("Toplam Temettü ($)", f"${t_temettu_usd:,.2f}")
-
-        if ozet_hisse:
-            st.dataframe(pd.DataFrame(ozet_hisse), use_container_width=True)
+        if not tablo.empty:
+            grafik = st.columns([2, 1])
+            grafik[0].dataframe(tablo, use_container_width=True)
+            dagilim = tablo[tablo["Güncel Değer ($)"] != "N/A"].copy()
+            if not dagilim.empty and dagilim["Kazan"].str.strip().any():
+                dagilim["deger"] = (
+                    dagilim["Güncel Değer ($)"].str.replace(r"[$,]", "", regex=True).astype(float)
+                )
+                pasta = px.pie(
+                    dagilim[dagilim["Kazan"] != ""], names="Kazan", values="deger", hole=0.4,
+                    title="🎨 3 Kazan Dağılımı", color_discrete_sequence=px.colors.qualitative.Pastel,
+                )
+                pasta.update_layout(margin=dict(t=40, b=0, l=0, r=0), height=280)
+                grafik[1].plotly_chart(pasta, use_container_width=True)
 
         st.markdown("---")
-        st.subheader("📜 Tüm Geçmiş Hisse İşlem Kayıtları")
-        df_hisse_edit = df_hisse.copy()
-        if "Sil" not in df_hisse_edit.columns: df_hisse_edit.insert(0, "Sil", False)
+        silme_bolumu(defter_hisse, EXCEL_HISSE, "duzenleyici_hisse")
 
-        edited_df_h = st.data_editor(
-            df_hisse_edit, 
-            column_config={"Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False)},
-            disabled=["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Islem_Kuru_USDTRY", "Borsa_PB"],
-            hide_index=True, use_container_width=True, key="islem_editor_hisse"
-        )
+# --- SEKME 2: KRİPTO -------------------------------------------------------
+with sekme2:
+    st.subheader("🪙 Kripto Varlık İşlem Kaydı")
+    ust_k = st.columns([1, 1])
+    with ust_k[0]:
+        secilen_kripto = (st_searchbox(kripto_ara, key="kripto_arama",
+                                       placeholder="Kripto ara (BTC, ETH, SOL)...") or "").strip().upper()
+    with ust_k[1]:
+        anlik_kripto = kripto_piyasa_verisi((secilen_kripto,)).get(secilen_kripto, {}).get("fiyat") if secilen_kripto else None
+        if anlik_kripto:
+            st.success(f"⚡ **{secilen_kripto}/USDT:** **${anlik_kripto:,.4f}**")
+        elif secilen_kripto:
+            st.warning(f"⚠️ **{secilen_kripto}** için Binance fiyatı alınamadı.")
 
-        silinecekler_h = edited_df_h[edited_df_h["Sil"] == True]
-        if not silinecekler_h.empty:
-            if st.button(f"🗑️ Seçilen {len(silinecekler_h)} Adet İşlemi Sil", type="primary"):
-                kalan_df_h = edited_df_h[edited_df_h["Sil"] == False].drop(columns=["Sil"])
-                if veri_kaydet(kalan_df_h, EXCEL_HISSE):
-                    st.success("✅ Seçilen kayıtlar silindi!"); st.rerun()
+    with st.form("kripto_formu", clear_on_submit=True):
+        alan_k = st.columns(3)
+        k_tip = alan_k[0].selectbox("İşlem Tipi", ["AL 🟢", "SAT 🔴", "STAKING 💰"])
+        k_fiyat = alan_k[1].number_input("Fiyat ($ USDT)", min_value=0.0, value=None,
+                                         placeholder=f"{anlik_kripto:,.4f}" if anlik_kripto else "0.0000",
+                                         format="%.4f")
+        k_adet = alan_k[2].number_input("Adet", min_value=0.000001, value=1.0, step=0.1, format="%.6f")
+        k_onaylar = [
+            st.checkbox("🛡️ Stratejime uygun.", key="k_o1"),
+            st.checkbox("🧠 Duygusal değil.", key="k_o2"),
+            st.checkbox("📱 Borsada gerçekleşti.", key="k_o3"),
+        ]
 
-# SEKME 2: KRİPTO PORTFÖYÜ (YY-2 DÜZELTMESİ: TAM KRİPTO HESAPLAMA MOTORU EKLENDİ)
-with tab2:
-    st.title("🪙 Gerçekleşen Kripto Varlık İşlem Kaydı & Pozisyon Özeti")
-    col_k1, col_k2 = st.columns([1, 1])
-    with col_k1:
-        secilen_kripto = st_searchbox(canlı_kripto_sorgula, key="kripto_searchbox", placeholder="Kripto Ara (Örn: BTC, ETH, SOL)...")
-        girilen_kripto = secilen_kripto.strip().upper() if secilen_kripto else ""
-    with col_k2:
-        binance_fiyat = binance_fiyat_getir(girilen_kripto) if girilen_kripto else None
-        if binance_fiyat: st.success(f"⚡ **Binance Canlı {girilen_kripto}:** **${binance_fiyat:,.4f}**")
+        if st.form_submit_button("💾 Kripto İşlemini Kaydet"):
+            imza_k = (secilen_kripto, k_tip, k_fiyat, k_adet, "USD", dt.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"))
+            hata_k = None
+            if not secilen_kripto:
+                hata_k = "Kripto varlık seçilmedi."
+            elif not all(k_onaylar):
+                hata_k = "Üç onay kutusunun da işaretlenmesi gerekiyor."
+            elif k_fiyat is None or k_fiyat <= 0:
+                hata_k = "Geçerli bir fiyat girin."
+            elif pc.islem_tipi(k_tip) is pc.SAT and k_adet > pc.satilabilir_adet(defter_kripto, secilen_kripto) + 1e-9:
+                hata_k = (f"Elde {pc.satilabilir_adet(defter_kripto, secilen_kripto):.6f} adet var; "
+                          f"{k_adet:.6f} adet satılamaz.")
+            elif mukerrer_mi(imza_k):
+                hata_k = "Bu işlemi az önce kaydettiniz."
 
-    with st.form("kripto_formu", clear_on_submit=False):
-        col1, col2, col3 = st.columns(3)
-        with col1: k_tip = st.selectbox("İşlem Tipi", ["AL 🟢", "SAT 🔴", "STAKING 💰"], key="k_tip")
-        with col2: k_fiyat = st.number_input("Fiyat ($ USDT):", min_value=0.0, value=binance_fiyat if binance_fiyat else None, format="%.4f", key="k_f")
-        with col3: k_adet = st.number_input("Adet:", min_value=0.000001, value=1.0, step=0.1, format="%.6f", key="k_a")
-        kc1, kc2, kc3 = st.checkbox("🛡️ Stratejime uygun.", key="k_c1"), st.checkbox("🧠 Duygusal değil.", key="k_c2"), st.checkbox("📱 Kurumda gerçekleşti.", key="k_c3")
-        
-        k_submitted = st.form_submit_button("💾 Kripto İşlemini Kaydet")
-        if k_submitted:
-            if not girilen_kripto: st.error("❌ Kripto varlık seçilmedi!")
-            elif not (kc1 and kc2 and kc3): st.error("❌ Lütfen onay kutularını işaretleyin!")
-            elif k_fiyat is None or k_fiyat <= 0: st.error("❌ Geçerli fiyat girin!")
+            if hata_k:
+                st.error(f"❌ {hata_k}")
             else:
-                df_k = veri_yukle(EXCEL_KRIPTO)
-                
-                # KRİPTO SATIŞ GUARD'I
-                k_satis_gecerli = True
-                if "SAT" in k_tip:
-                    m_k_adet = df_k[(df_k["Hisse"] == girilen_kripto) & (df_k["Tip"].str.contains("AL", regex=False, na=False))]["Adet"].sum() - \
-                               df_k[(df_k["Hisse"] == girilen_kripto) & (df_k["Tip"].str.contains("SAT", regex=False, na=False))]["Adet"].sum()
-                    if k_adet > m_k_adet:
-                        st.error(f"❌ Elde {m_k_adet:.6f} adet var. {k_adet:.6f} adet satılamaz!")
-                        k_satis_gecerli = False
+                yeni_k = pd.DataFrame([{
+                    "Tarih": imza_k[5], "Hisse": secilen_kripto, "Kazan": "", "Tip": k_tip,
+                    "Fiyat": k_fiyat, "Adet": k_adet, "Toplam": k_fiyat * k_adet,
+                    "Para_Birimi": "USD",
+                    "Islem_Kuru": kurlar.get("USD"), "Islem_USDTRY": kurlar.get("USD"),
+                    "Borsa_PB": "USD", "Borsa": "BINANCE",
+                }])
+                if veri_kaydet(pd.concat([defter_kripto, yeni_k], ignore_index=True), EXCEL_KRIPTO):
+                    st.session_state["son_kayit_imzasi"] = imza_k
+                    st.success("✅ Kripto işlemi kaydedildi.")
+                    st.rerun()
 
-                if k_satis_gecerli:
-                    yeni_k = pd.DataFrame([{
-                        "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
-                        "Hisse": girilen_kripto, "Kazan": "C Kazanı (%10 - Agresif)", "Tip": k_tip,
-                        "Fiyat": k_fiyat, "Adet": k_adet, "Toplam": k_fiyat * k_adet,
-                        "Para_Birimi": "USD", "Islem_Kuru": 1.0, "Islem_Kuru_USDTRY": kurlar["USD"] if kurlar["USD"] else 1.0, "Borsa_PB": "USD"
-                    }])
-                    if veri_kaydet(pd.concat([df_k, yeni_k], ignore_index=True), EXCEL_KRIPTO):
-                        st.success("✅ Kripto İşlemi Kaydedildi!"); st.rerun()
-
-    df_kripto_data = veri_yukle(EXCEL_KRIPTO)
-    if not df_kripto_data.empty:
+    if not defter_kripto.empty:
         st.markdown("---")
-        st.subheader("🪙 Canlı Kripto Portföy Durumu (Binance Real-Time)")
-        
-        k_ozet, t_k_maliyet, t_k_deger, k_gerceklesen_kz = {}, 0.0, 0.0, 0.0
-        for _, row in df_kripto_data.sort_values("Tarih").iterrows():
-            coin, t, a, f = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"]
-            if coin not in k_ozet: k_ozet[coin] = {"Adet": 0.0, "Toplam_Maliyet": 0.0}
-            
-            if "AL" in t:
-                k_ozet[coin]["Adet"] += a
-                k_ozet[coin]["Toplam_Maliyet"] += (f * a)
-            elif "SAT" in t and k_ozet[coin]["Adet"] > 0:
-                ort = k_ozet[coin]["Toplam_Maliyet"] / k_ozet[coin]["Adet"]
-                k_gerceklesen_kz += (f * a - a * ort)
-                k_ozet[coin]["Adet"] -= a
-                k_ozet[coin]["Toplam_Maliyet"] -= (a * ort)
-
-        ozet_kripto_list = []
-        for coin, v in k_ozet.items():
-            if v["Adet"] > 0.000001:
-                c_fiyat = binance_fiyat_getir(coin)
-                maliyet = v["Toplam_Maliyet"]
-                if c_fiyat:
-                    g_deger = v["Adet"] * c_fiyat
-                    kz = g_deger - maliyet
-                    t_k_maliyet += maliyet
-                    t_k_deger += g_deger
-                    c_f_str, g_d_str, kz_str = f"${c_fiyat:,.4f}", f"${g_deger:,.2f}", f"${kz:,.2f}"
-                else: c_f_str, g_d_str, kz_str = "N/A", "N/A", "N/A"
-                
-                ozet_kripto_list.append({
-                    "Kripto": coin, "Adet": round(v["Adet"], 6),
-                    "Ort. Maliyet ($)": round(maliyet / v["Adet"], 4),
-                    "Canlı Fiyat ($)": c_f_str, "Güncel Değer ($)": g_d_str, "Kâr/Zarar ($)": kz_str
-                })
-
-        km1, km2, km3, km4 = st.columns(4)
-        km1.metric("Kripto Toplam Maliyet ($)", f"${t_k_maliyet:,.2f}" if t_k_maliyet else "N/A")
-        km2.metric("Kripto Güncel Değer ($)", f"${t_k_deger:,.2f}" if t_k_deger else "N/A")
-        km3.metric("Açık Kripto K/Z ($)", f"${t_k_deger - t_k_maliyet:,.2f}" if t_k_deger else "N/A")
-        km4.metric("Satış K/Z ($)", f"${k_gerceklesen_kz:,.2f}")
-
-        if ozet_kripto_list:
-            st.dataframe(pd.DataFrame(ozet_kripto_list), use_container_width=True)
+        st.subheader("📊 Açık Kripto Pozisyonları")
+        metrik_satiri(ozet_kripto, kripto_maliyet, kripto_deger, "Toplam Staking ($)")
+        ozet_uyarilari(ozet_kripto, kripto_fiyatsiz)
+        if not tablo_kripto.empty:
+            st.dataframe(tablo_kripto, use_container_width=True)
 
         st.markdown("---")
-        st.subheader("📜 Tüm Geçmiş Kripto İşlem Kayıtları")
-        df_kripto_edit = df_kripto_data.copy()
-        if "Sil" not in df_kripto_edit.columns: df_kripto_edit.insert(0, "Sil", False)
+        silme_bolumu(defter_kripto, EXCEL_KRIPTO, "duzenleyici_kripto")
 
-        edited_df_k = st.data_editor(
-            df_kripto_edit,
-            column_config={"Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False)},
-            disabled=REQUIRED_COLUMNS, hide_index=True, use_container_width=True, key="islem_editor_kripto"
-        )
-        silinecekler_k = edited_df_k[edited_df_k["Sil"] == True]
-        if not silinecekler_k.empty:
-            if st.button("🗑️ Seçilen Kripto İşlemlerini Sil", type="primary"):
-                kalan_df_k = edited_df_k[edited_df_k["Sil"] == False].drop(columns=["Sil"])
-                if veri_kaydet(kalan_df_k, EXCEL_KRIPTO):
-                    st.success("✅ Kayıtlar silindi!"); st.rerun()
+# --- SEKME 3: GRAFİK -------------------------------------------------------
+with sekme3:
+    st.subheader("🤖 TradingView Grafik Ajanı")
+    grafik_ust = st.columns([2, 1])
+    with grafik_ust[0]:
+        grafik_secim = st_searchbox(hisse_ara, key="grafik_arama", placeholder="Grafiği açılacak varlık...")
+        grafik_sembol, grafik_borsa = secimi_coz(grafik_secim)
+    with grafik_ust[1]:
+        varlik_turu = st.radio("Varlık Türü:", ["Hisse (BIST/US)", "Kripto (Binance)"], horizontal=True)
 
-# SEKME 3: AI ARAŞTIRMACI
-with tab3:
-    st.title("🤖 AI Borsa & Kripto Araştırmacı Ajanı")
-    col_a1, col_a2 = st.columns([2, 1])
-    with col_a1: secilen_ajan = st_searchbox(canlı_hisse_sorgula, key="ajan_searchbox", placeholder="Grafik Açılacak Varlık..."); ajan_kod = secilen_ajan.strip().upper() if secilen_ajan else "AAPL"
-    with col_a2: varlik_turu = st.radio("Varlık Türü:", ["Hisse (BIST/US)", "Kripto (Binance)"], horizontal=True)
-    if st.button("🔍 TradingView Grafiği Yükle"):
-        tv_symbol = tv_sembol_donustur(ajan_kod, kripto_mu=("Kripto" in varlik_turu))
+    if st.button("🔍 Grafiği Yükle") and grafik_sembol:
+        tv_kodu = pc.tv_sembol(grafik_sembol, grafik_borsa, kripto_mu="Kripto" in varlik_turu)
+        st.caption(f"TradingView sembolü: `{tv_kodu}`")
         components.html(f"""
         <div class="tradingview-widget-container" style="height:600px;width:100%">
-          <div id="tv_chart" style="height:550px;width:100%"></div>
+          <div id="tv_grafik" style="height:560px;width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
-          new TradingView.widget({{ "autosize": true, "symbol": "{tv_symbol}", "interval": "D", "theme": "dark", "container_id": "tv_chart" }});
+            new TradingView.widget({json.dumps({
+                "autosize": True, "symbol": tv_kodu, "interval": "D",
+                "timezone": "Europe/Istanbul", "theme": "dark", "locale": "tr",
+                "container_id": "tv_grafik",
+            })});
           </script>
         </div>""", height=620)
 
-# SEKME 4: CANLI TAKİP RADARI & MAKRO TAKVİM (YY-2 DÜZELTMESİ: KRİPTO RADARI DÜZELTİLDİ)
-with tab4:
-    st.title("⚡ Canlı Takip Radarı & Küresel Makro Takvim")
-    col_rad1, col_rad2 = st.columns([1, 1])
-    
-    with col_rad1:
-        st.subheader("📋 Portföydeki Varlıkların Canlı Durumu")
-        df_h_m = veri_yukle(EXCEL_HISSE)
-        df_k_m = veri_yukle(EXCEL_KRIPTO)
-        
-        p_hisseler = list(set(df_h_m["Hisse"].dropna().tolist()))
-        p_kriptolar = list(set(df_k_m["Hisse"].dropna().tolist()))
-        
-        radar_tablosu = []
-        if p_hisseler:
-            batch_r = toplu_piyasa_verisi_cek(p_hisseler)
-            for v in sorted(p_hisseler):
-                kod = hisse_kod_duzelt(v)
-                b_d = batch_r.get(kod, {})
-                fiyat = b_d.get("fiyat", None)
-                degisim = b_d.get("degisim", None)
-                radar_tablosu.append({
-                    "Varlık": f"🌐 {v}",
-                    "Son Fiyat": f"{fiyat:,.2f}" if fiyat else "N/A",
-                    "Günlük Değişim": f"%{degisim:+.2f}" if degisim is not None else "N/A"
-                })
-                
-        if p_kriptolar:
-            for k in sorted(p_kriptolar):
-                kf = binance_fiyat_getir(k)
-                radar_tablosu.append({
-                    "Varlık": f"🪙 {k} / USDT",
-                    "Son Fiyat": f"${kf:,.4f}" if kf else "N/A",
-                    "Günlük Değişim": "Canlı Stream"
-                })
-                
-        if radar_tablosu: st.dataframe(pd.DataFrame(radar_tablosu), use_container_width=True)
-        else: st.info("Portföyünüz henüz boş.")
+# --- SEKME 4: RADAR --------------------------------------------------------
+with sekme4:
+    st.subheader("⚡ Canlı Radar & Küresel Makro Takvim")
+    radar_kutu = st.columns([1, 1])
 
-    with col_rad2:
-        st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
-        components.html(tradingview_makro_takvim_widget(), height=460)
+    with radar_kutu[0]:
+        st.markdown("**📋 Portföydeki Varlıkların Canlı Durumu**")
+        radar = []
+        for sembol in hisse_sembolleri:
+            kod = pc.sembol_normalize(sembol)
+            piyasa = hisse_fiyatlari.get(kod, {})
+            birim = pc.varsayilan_borsa_pb(sembol)
+            radar.append({
+                "Varlık": sembol, "Tür": "Hisse",
+                "Son Fiyat": f"{piyasa['fiyat']:,.2f}" if piyasa.get("fiyat") else "N/A",
+                "Para Birimi": birim,
+                "Günlük Değişim": f"%{piyasa['degisim']:+.2f}" if piyasa.get("degisim") is not None else "N/A",
+            })
+        for sembol in kripto_sembolleri:
+            piyasa = kripto_fiyatlari.get(sembol, {})
+            radar.append({
+                "Varlık": sembol, "Tür": "Kripto",
+                "Son Fiyat": f"{piyasa['fiyat']:,.4f}" if piyasa.get("fiyat") else "N/A",
+                "Para Birimi": "USDT",
+                "Günlük Değişim": f"%{piyasa['degisim']:+.2f}" if piyasa.get("degisim") is not None else "N/A",
+            })
+        if radar:
+            st.dataframe(pd.DataFrame(radar), use_container_width=True, hide_index=True)
+        else:
+            st.info("Portföyünüz henüz boş.")
 
-# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (GERİ YÜKLENEN FULL SKILL'LER)
-with tab5:
-    st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
-    st.caption("Ajan Becerileri: Sistem Denetimi, Kategorili FinTek Araştırması, Hassasiyet Test Laboratuvarı ve Yol Haritası.")
-    
-    # 1. SKILL: KOD & SİSTEM DENETİMİ
-    def skill_code_audit():
-        audit_results = []
-        if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
-        else: audit_results.append("⚠️ **Hisse Veri Tabanı:** Eksik!")
-        if os.path.exists(EXCEL_KRIPTO): audit_results.append("✅ **Kripto Veri Tabanı:** Aktif ve Erişilebilir.")
-        else: audit_results.append("⚠️ **Kripto Veri Tabanı:** Eksik!")
-        try:
-            r = requests.get("https://api.binance.com/api/v3/ping", timeout=2)
-            if r.status_code == 200: audit_results.append("✅ **Binance API Skill:** Aktif ve Canlı (200 OK).")
-        except: audit_results.append("❌ **Binance API Skill:** Kesinti var!")
-        return audit_results
+    with radar_kutu[1]:
+        st.markdown("**🏛️ Küresel Ekonomik & FED Makro Takvimi**")
+        components.html(
+            tradingview_html(
+                json.dumps({"colorTheme": "dark", "isTransparent": False, "width": "100%",
+                            "height": 450, "locale": "tr", "importanceFilter": "0,1",
+                            "currencyFilter": "USD,EUR,TRY"}),
+                "https://s3.tradingview.com/external-embedding/embed-widget-events.js",
+                460,
+            ),
+            height=460,
+        )
 
-    # 2. SKILL: KATEGORİLİ AR-GE VE FİNTEK ARAŞTIRMACISI
-    def skill_fintech_research_kategorili(konu):
-        df_h = veri_yukle(EXCEL_HISSE)
-        df_k = veri_yukle(EXCEL_KRIPTO)
-        
-        h_hisseler = df_h["Hisse"].dropna().unique().tolist() if not df_h.empty and "Hisse" in df_h.columns else []
-        k_kriptolar = df_k["Hisse"].dropna().unique().tolist() if not df_k.empty and "Hisse" in df_k.columns else []
-        
-        if "küresel" in konu.lower() or "abd" in konu.lower():
-            us_hisseler = [h for h in h_hisseler if not str(h).endswith(".IS")]
-            return [
-                f"🌐 **Küresel Varlık Analizi:** Portföyünüzde şu an {len(us_hisseler)} adet ABD/Global hisse senedi tespit edildi.",
-                "💵 **Tarihsel Dolarlaştırma Otomasyonu (YK-1 Çözüldü ✅):** ABD Hisseleri işlem günündeki tarihsel kurlarla maliyetlendiriliyor.",
-                "🏛️ **FED / Makro Takvim:** Canlı küresel ekonomik takvim 4. Sekmeye entegre çalışmaktadır."
-            ]
-        elif "indikatör" in konu.lower():
-            if h_hisseler:
-                ornek_hisse = h_hisseler[0]
-                batch_res = toplu_piyasa_verisi_cek([ornek_hisse])
-                b_item = batch_res.get(hisse_kod_duzelt(ornek_hisse), {})
-                return [
-                    f"📊 **Canlı İndikatör Testi ({ornek_hisse}):** Wilder RSI(14) = **{b_item.get('rsi', 'N/A')}** ({b_item.get('rsi_durum', 'N/A')}).",
-                    "📈 **Wilder RSI Motoru:** Tüm portföy için anlık aşırı alım/satım sinyalleri standart formülle hesaplanıyor.",
-                    "🎯 **Sıradaki Hedef:** Kırılım noktalarını ölçmek için Bollinger Bantları entegrasyonu."
-                ]
-            else:
-                return [
-                    "📊 **Wilder RSI (14) Motoru:** Canlı borsa hesaplama altyapısı aktif.",
-                    "💡 **Not:** Portföyünüze hisse eklediğinizde anlık teknik sinyaller otomatik üretilecektir."
-                ]
-        elif "arayüz" in konu.lower() or "görsel" in konu.lower():
-            return [
-                f"🎨 **3 Kazan Dağılım Grafiği:** Portföyünüzdeki {len(h_hisseler)} hisse için Pasta Grafiği canlı çiziliyor.",
-                "🔥 **Piyasa Isı Haritası (Heatmap):** BIST ve S&P 500 için kazandıran/kaybettiren görsel matris hazırlanabilir."
-            ]
-        else: # Yeni Sekme & Otomasyon Fikirleri
-            return [
-                f"📅 **Temettü Takvimi (Tamamlandı ✅):** 6. Sekmede portföyünüzdeki {len(h_hisseler)} hissenin temettü akışı canlı taranıyor.",
-                f"🔔 **Akıllı Alarm Botu:** Portföydeki {len(k_kriptolar)} kripto ve hisse için fiyat kırılım bildirim botu."
-            ]
+# --- SEKME 5: SİSTEM & QA --------------------------------------------------
+with sekme5:
+    st.subheader("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
+    st.caption("Ajan Becerileri: Sistem Denetimi, FinTek Araştırması, Gerçek Zamanlı Ölçüm ve Yol Haritası.")
 
-    # 3. SKILL: QA HASSASİYET SİMÜLASYON LABORATUVARI
-    def qa_test_simulasyonu(test_turu, test_sembol="NVO"):
-        test_raporu = []
-        if test_turu == "Temettü Verim & Oran Mantık Denetimi":
-            try:
-                t = yf.Ticker(hisse_kod_duzelt(test_sembol))
-                dy = t.info.get('dividendYield', 0) or 0
-                test_raporu.append(f"🔍 **CANLI SORGU ATILDI ({test_sembol.upper()}):**")
-                test_raporu.append(f"👉 **Ham Temettü Verimi:** `{dy}`")
-                if dy > 0.5:
-                    test_raporu.append(f"⚠️ **Çarpan Anormalliği Tespiti:** Ham veri %{dy*100:.1f} geliyor! Otomatik %100 ölçekleme kuralı uygulandı.")
-                else:
-                    test_raporu.append(f"✅ **Temettü Verimi Makul:** %{dy*100:.2f}")
-            except Exception as e:
-                test_raporu.append(f"❌ Sorgu Hatası: {e}")
-
-        elif test_turu == "BIST & USD Kur Çevrim Matematiği":
-            if kurlar["USD"]:
-                usd_kuru = kurlar["USD"]
-                sanal_maliyet_tl = 1000.0
-                hesaplanan_usd = sanal_maliyet_tl / usd_kuru
-                test_raporu.append(f"✅ **Döviz Motoru:** Anlık Dolar kuru (₺{usd_kuru:,.2f}) başarıyla çekildi.")
-                test_raporu.append(f"✅ **Matematik Doğrulaması:** ₺1.000,00 işlem maliyeti tam olarak ${hesaplanan_usd:,.2f} şeklinde portföye işleniyor.")
-            else: test_raporu.append("❌ Canlı Kur Çekilemedi!")
-            
-        elif test_turu == "ABD Borsaları & Küsürat Satış Hassasiyeti":
-            test_raporu.append("✅ **Nasdaq/NYSE Entegrasyonu:** AAPL ve NVDA hisse kodları test edildi.")
-            test_raporu.append("✅ **Küsürat Hassasiyeti:** 0.0001 basamaklı fractional hisse alım-satım matematiği hatasız.")
-            
-        elif test_turu == "Kripto & Binance API Limit / Rate Control":
-            start_t = time.time()
-            try:
-                r = requests.get("https://api.binance.com/api/v3/ping", timeout=3)
-                latency = (time.time() - start_t) * 1000
-                test_raporu.append(f"✅ **Binance Ping:** 200 OK (Gecikme: `{latency:.2f} ms`).")
-                test_raporu.append("✅ **API Kota Durumu:** İstek limiti güvenli bölgede.")
-            except Exception as e:
-                test_raporu.append(f"❌ **API Bağlantı Hatası:** {e}")
-                
-        return test_raporu
-
-    st.subheader("🛠️ Ajan Skill Laboratuvarı")
     col_sk1, col_sk2 = st.columns(2)
-    
     with col_sk1:
         st.markdown("### 🧪 1. Skill: Otonom Sistem & Kod Denetimi")
-        if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara", key="btn_audit_scan"):
-            st.write("Ajan denetim fonksiyonunu çalıştırıyor...")
-            for r in skill_code_audit(): st.markdown(r)
-                
+        if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara"):
+            st.write(f"{'✅' if os.path.exists(EXCEL_HISSE) else '⚠️'} **Hisse Veri Tabanı:** `{EXCEL_HISSE}`")
+            st.write(f"{'✅' if os.path.exists(EXCEL_KRIPTO) else '⚠️'} **Kripto Veri Tabanı:** `{EXCEL_KRIPTO}`")
+            baslangic = time.monotonic()
+            try:
+                r = requests.get(f"{BINANCE}/api/v3/ping", timeout=3)
+                gecikme = (time.monotonic() - baslangic) * 1000
+                st.write(f"✅ **Binance API Latency:** `{gecikme:.0f} ms` (Status: {r.status_code})")
+            except Exception as e:
+                st.write(f"❌ **Binance API:** Erişilemedi - {e}")
+
     with col_sk2:
         st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
-        araştırma_konusu = st.selectbox(
+        arge_konu = st.selectbox(
             "Ajan Neyi Araştırsın?",
             [
-                "Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)", 
-                "Gelişmiş İndikatörler & Teknik Analiz", 
-                "Arayüz & Görsel Geliştirmeler", 
+                "Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)",
+                "Gelişmiş İndikatörler & Teknik Analiz",
+                "Arayüz & Görsel Geliştirmeler",
                 "Yeni Sekme & Otomasyon Fikirleri"
-            ],
-            key="sb_arge_research"
+            ]
         )
-        if st.button("🚀 Ajan Araştırmasını Başlat", key="btn_arge_start"):
-            st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı canlı verilerle taranıyor...")
-            for b in skill_fintech_research_kategorili(araştırma_konusu): st.write(b)
+        if st.button("🚀 Ajan Araştırmasını Başlat"):
+            if "küresel" in arge_konu.lower():
+                st.write("🌐 **Küresel Varlık Analizi:** ABD hisseleri tarihsel USDTRY kuruyla dolar bazında sabit maliyetlenmektedir.")
+            elif "indikatör" in arge_konu.lower():
+                st.write("📊 **Wilder RSI (14) Motoru:** Standart ewm periyodu ile aşırı alım/satım sinyalleri üretilmektedir.")
+            elif "arayüz" in arge_konu.lower():
+                st.write("🎨 **Görselleştirmeler:** 3 Kazan Pasta Grafiği ve Canlı Radar Matrisi aktif çalışmaktadır.")
+            else:
+                st.write("📅 **Otomasyon:** Temettü Takvimi ve Akıllı Alarm Botu altyapısı hazırlandı.")
 
     st.markdown("---")
-    st.subheader("🧪 3. Skill: Otonom QA / Mantık & Anormallik Denetçisi")
-    col_qa1, col_qa2 = st.columns(2)
-    
-    with col_qa1:
-        secilen_test = st.selectbox(
-            "Ajan Hangi Mantık Denetimini Çalıştırsın?",
-            [
-                "Temettü Verim & Oran Mantık Denetimi",
-                "BIST & USD Kur Çevrim Matematiği",
-                "ABD Borsaları & Küsürat Satış Hassasiyeti",
-                "Kripto & Binance API Limit / Rate Control"
-            ],
-            key="sb_qa_test"
-        )
-        test_hisse_input = st.text_input("Test Edilecek Hisse Kodu:", value="NVO", key="qa_hisse_input").strip().upper()
-        
-        if st.button("🚀 QA Mantık Denetimini Başlat", key="btn_qa_start"):
-            st.info(f"🤖 **Ajan Canlı Sorgu Atıyor:** *'{test_hisse_input}'* için '{secilen_test}' verileri denetleniyor...")
-            for r in qa_test_simulasyonu(secilen_test, test_hisse_input): st.write(r)
-                
-    with col_qa2:
-        st.markdown("### 📊 Sistem Durumu & Önbellek Performansı")
-        st.success("🟢 **Sistem Sağlığı:** Güvenli Modda Çalışıyor.")
-        st.info(f"⚡ **Cache Durumu:** `ttl=300s` aktif | **İşlem Zamanı (TSİ):** {datetime.datetime.now(TSI).strftime('%H:%M:%S')}")
+    st.markdown("### 📊 Gerçek Zamanlı Süreç & Sistem Durumu")
+    qa_kutu = st.columns(2)
+    with qa_kutu[0]:
+        st.markdown("**🗂️ Defter Durumu**")
+        for dosya, defter in [(EXCEL_HISSE, defter_hisse), (EXCEL_KRIPTO, defter_kripto)]:
+            hata = st.session_state.get("yukleme_hatalari", {}).get(dosya)
+            yedek_sayisi = len(glob.glob(f"{dosya}.*.bak"))
+            if hata:
+                st.write(f"❌ **{dosya}:** okunamıyor — yazma kilitli")
+            elif os.path.exists(dosya):
+                st.write(f"✅ **{dosya}:** {len(defter)} kayıt · {yedek_sayisi} yedek")
+            else:
+                st.write(f"ℹ️ **{dosya}:** henüz oluşturulmadı")
+
+    with qa_kutu[1]:
+        st.markdown("**📊 Süreç Kaynak Kullanımı**")
+        try:
+            import psutil
+            surec = psutil.Process(os.getpid())
+            bellek = surec.memory_info().rss / (1024 * 1024)
+            st.metric("Süreç belleği (RSS)", f"{bellek:,.1f} MB")
+        except ImportError:
+            st.info("psutil kurulu değil; bellek ölçümü atlandı.")
+
+        st.write(f"Sunucu saati (TSİ): `{dt.datetime.now(TSI).strftime('%Y-%m-%d %H:%M:%S')}`")
 
     st.markdown("---")
-    st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
-    st.info("""
-    **Sistem Mimarı Ajan Notu:** 
-    1. Ar-Ge Ajanının açılır menü kategorileri ve araştırmaları eksiksiz geri yüklendi.
-    2. YK-1, YK-2, YK-3, YK-4, YY-1 ve YY-2 raporundaki kritik finansal hatalar ve st.stop() kesintisi tamamen düzeltildi.
-    3. Kripto portföyü canlı hesaplama motoruna bağlandı, tüm ajan yetenekleri aktifleştirildi.
-    """)
+    st.warning(
+        "**Bilinen sınır — kalıcılık:** Defterler sunucudaki Excel dosyalarında tutulur. "
+        "Streamlit Cloud'da dosya sistemi geçicidir (yeniden dağıtımda silinir) ve tüm "
+        "ziyaretçiler aynı defteri paylaşır. Kişisel veya çok kullanıcılı kullanım için "
+        "kimlik doğrulamalı bir veritabanına geçilmelidir. Excel'i düzenli olarak yan menüden indirin."
+    )
 
-# SEKME 6: TEMETTÜ TAKVİMİ
-with tab6:
-    st.title("📅 Canlı BIST & Küresel Temettü Takvimi")
-    col_t1, col_t2 = st.columns([1, 1])
-    
-    with col_t1:
-        st.subheader("🔍 Hisse Temettü Sorgula")
-        secilen_t = st_searchbox(canlı_hisse_sorgula, key="t_search", placeholder="Hisse Kodu (Örn: EREGL, NVO)...")
-        if secilen_t:
-            kod = hisse_kod_duzelt(secilen_t)
-            try:
-                t = yf.Ticker(kod)
-                info = t.info
-                dy = info.get('dividendYield', 0) or 0
-                yield_val = dy if dy <= 1 else dy / 100.0
-                st.json({
-                    "Hisse": kod,
-                    "Yıllık Temettü ($)": info.get('dividendRate', 0),
-                    "Temettü Verimi": f"%{yield_val * 100:.2f}",
-                    "Ex-Date": datetime.datetime.fromtimestamp(info.get('exDividendDate', 0), tz=pytz.utc).strftime('%Y-%m-%d') if info.get('exDividendDate') else "Belirtilmedi"
-                })
-            except Exception as e: st.error(f"Veri çekilemedi: {e}")
+# --- SEKME 6: TEMETTÜ ------------------------------------------------------
+with sekme6:
+    st.subheader("📅 Temettü")
+    temettu_kutu = st.columns([1, 1])
 
-    with col_t2:
-        st.subheader("💼 Portföy Temettü Özeti")
-        df_h_m = veri_yukle(EXCEL_HISSE)
-        if not df_h_m.empty:
-            st.dataframe(df_h_m[df_h_m["Tip"].str.contains("TEMETTÜ", regex=False, na=False)][["Tarih", "Hisse", "Fiyat", "Adet", "Toplam", "Para_Birimi"]], use_container_width=True)
-        else: st.info("Temettü kaydı yok.")
+    with temettu_kutu[0]:
+        st.markdown("**🔍 Hisse Temettü Sorgula**")
+        t_secim = st_searchbox(hisse_ara, key="temettu_arama", placeholder="Hisse kodu (EREGL, NVO, KO)...")
+        t_sembol, _ = secimi_coz(t_secim)
+        if t_sembol:
+            kod = pc.sembol_normalize(t_sembol)
+            bilgi = temettu_bilgisi(kod)
+            if not bilgi:
+                st.error("Temettü verisi çekilemedi.")
+            else:
+                oran, kaynak = pc.temettu_verimi(
+                    bilgi["yillik_temettu"], bilgi["fiyat"], bilgi["ham_yield"]
+                )
+                birim = bilgi.get("para_birimi", "USD")
+                yillik = bilgi["yillik_temettu"]
+                yillik_metni = f"{yillik:,.4f} {birim}" if yillik else "—"
+                st.write(f"**Sembol:** {kod} · **Sektör:** {bilgi.get('sektor') or '—'}")
+                st.write(f"**Yıllık temettü:** {yillik_metni}")
+                if kaynak == "hesaplandi":
+                    st.write(f"**Temettü verimi:** %{oran * 100:,.2f}  \n*(yıllık temettü ÷ güncel fiyat)*")
+                elif kaynak == "belirsiz":
+                    st.warning(
+                        f"**Temettü verimi hesaplanamadı.** Sağlayıcıdan yalnızca ham değer geldi: "
+                        f"`{bilgi['ham_yield']}`. Bu değerin kesir mi yüzde mi olduğu sürüme göre "
+                        "değiştiği için ölçeklenmedi — yorumu size bırakılıyor."
+                    )
+                else:
+                    st.info("Bu hisse için temettü kaydı bulunmadı.")
+
+                ex_tarih = bilgi.get("ex_tarih")
+                if ex_tarih:
+                    st.write(
+                        "**Hak kullanım (ex-date):** "
+                        + dt.datetime.fromtimestamp(ex_tarih, tz=dt.timezone.utc).strftime("%Y-%m-%d")
+                        + "  *(UTC)*"
+                    )
+
+    with temettu_kutu[1]:
+        st.markdown("**💼 Kaydedilmiş Temettü / Staking Gelirleri**")
+        gelirler = pd.concat([defter_hisse, defter_kripto], ignore_index=True)
+        gelirler = gelirler[gelirler["Tip"].map(pc.islem_tipi) == pc.GELIR]
+        if gelirler.empty:
+            st.info("Henüz temettü veya staking kaydı girilmemiş.")
+        else:
+            st.dataframe(
+                gelirler[["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi"]].iloc[::-1],
+                use_container_width=True, hide_index=True,
+            )
+            st.metric(
+                "Toplam gelir ($)",
+                f"${ozet_hisse['gelir_usd'] + ozet_kripto['gelir_usd']:,.2f}",
+            )
+
+st.markdown("---")
+st.caption(
+    "Bu panel bir yatırım tavsiyesi aracı değildir. Fiyatlar gecikmeli olabilir; "
+    "kayıtlarınızı düzenli olarak yedekleyin."
+)
