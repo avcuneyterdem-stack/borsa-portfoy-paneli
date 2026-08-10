@@ -36,4 +36,4 @@ jobs:
         run: |
           pip install pyflakes
           python -m pyflakes app.py ajan.py indikator.py izleme.py piyasa.py \
-            portfoy_core.py otomatik_takip.py anlik_takip_ajani.py
+            portfoy_core.py otomatik_takip.py anlik_takip_ajani.py veri.py
