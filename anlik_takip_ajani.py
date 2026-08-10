@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
-import os
 import sys
 import time
 from zoneinfo import ZoneInfo
@@ -41,10 +40,8 @@ ONS_GRAM = 31.1035
 
 
 def defteri_oku(dosya):
-    if not os.path.exists(dosya):
-        return pc.bos_defter()
     try:
-        return pc.sema_uygula(pd.read_excel(dosya))
+        return pc.defter_oku(dosya)
     except Exception as hata:
         print(f"⚠️  {dosya} okunamadı: {hata}")
         return pc.bos_defter()

@@ -12,7 +12,7 @@ streamlit run app.py
 Testler:
 
 ```bash
-pytest -q          # 60 test
+pytest -q          # 73 test
 ```
 
 Yardımcı betikler:
@@ -34,7 +34,9 @@ python anlik_takip_ajani.py --surekli --aralik 60
 | `piyasa.py` | Ağ katmanı: kurlar, hisse/kripto fiyatları. Streamlit içermez. |
 | `otomatik_takip.py` | Gün sonu portföy değerini `portfoy_gecmisi.xlsx`'e yazan bot. |
 | `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. |
+| `ajan.py` | Portföy asistanı: Claude'a salt-okunur araçlar verip serbest soru yanıtlatır. |
 | `test_otomatik_takip.py` | Botun testleri (ağ erişimi olmadan). |
+| `test_ajan.py` | Asistanın testleri (API çağrısı olmadan). |
 
 Ayrım kasıtlıdır: para hesaplarındaki hatalar panelde "makul görünen ama yanlış"
 rakamlar olarak çıkar ve gözle fark edilmez. Bu yüzden hesabın tamamı ağ
@@ -104,19 +106,58 @@ Excel'e kendi eklediğiniz sütunlar korunur.
 - TradingView sembolleri temizlenir ve borsa öneki uydurulmaz.
 - İşlem saatleri `Europe/Istanbul` saat diliminde kaydedilir.
 
-## Bilinen sınır: kalıcılık ve çok kullanıcı
+## Kullanım biçimi: tek kullanıcı, yerel
 
-Defterler sunucudaki Excel dosyalarında tutulur. Bu, **Streamlit Cloud gibi
-ortamlarda iki soruna açıktır**:
+Bu panel **tek kişinin kendi bilgisayarında** çalışması için tasarlanmıştır.
+Bu varsayım altında Excel dosyaları yeterlidir: kalıcıdırlar, kimse
+paylaşmaz, eşzamanlı yazan ikinci bir oturum yoktur.
 
-1. Dosya sistemi geçicidir — yeniden dağıtımda defterler silinir.
-2. Tüm ziyaretçiler aynı defteri paylaşır; birbirinin kayıtlarını görüp
-   silebilir.
+Yedek sizin sorumluluğunuzdadır. Panel her kayıtta son 10 sürümü yedekler,
+ama hepsi aynı klasörde durur — disk giderse hepsi gider. Yan menüdeki
+**Excel indir** düğmelerini ara sıra kullanıp dosyaları başka bir yere kopyalayın.
 
-Dosya kilidi yalnızca tek makinedeki eşzamanlı yazımı çözer, bu iki sorunu
-çözmez. Kişisel veya çok kullanıcılı gerçek kullanım için kimlik doğrulamalı
-bir veritabanına (ör. kullanıcı bazlı SQLite veya harici DB) geçilmelidir.
-O zamana kadar yan menüdeki **Excel indir** düğmelerini düzenli kullanın.
+**Streamlit Cloud'a koymayın.** Orada iki sorun doğar: dosya sistemi
+geçicidir (yeniden dağıtımda defterler silinir) ve tüm ziyaretçiler aynı
+defteri paylaşır. Buluta taşımak gerekirse önce kimlik doğrulamalı bir
+veritabanına (kullanıcı bazlı SQLite veya harici DB) geçilmelidir; asistan da
+o durumda `ant` profiliyle değil, API anahtarıyla çalışmak zorundadır.
+
+## Portföy asistanı
+
+Sekme 5'teki asistana portföyünüz hakkında serbest soru sorabilirsiniz —
+"ne durumdayım", "en çok nerede zarardayım", "THYAO'yu ne zaman aldım" gibi.
+Komut satırından da çalışır:
+
+```bash
+python ajan.py "Portföyümde ne durumdayım?"
+```
+
+**Kurulum — bir kez.** [anthropic-cli](https://github.com/anthropics/anthropic-cli/releases)
+sayfasından `ant` dosyasını indirin, sonra:
+
+```bash
+ant auth login
+```
+
+Tarayıcı açılır, Claude hesabınızla giriş yaparsınız. Kimlik bilgisi
+bilgisayarınızda saklanır; kodda API anahtarı tutulmaz.
+
+> Bilgisayarınızda `ANTHROPIC_API_KEY` ortam değişkeni tanımlıysa bu profili
+> ezer ve kullandıkça ücretlendirilen yola girersiniz. Aboneliğinizden gitmesini
+> istiyorsanız o değişkeni tanımsız bırakın.
+
+**Maliyet.** `ant auth login` profiliyle ek ödeme çıkmaz; kullanım Claude
+aboneliğinizin kotasından düşer. `ANTHROPIC_API_KEY` ile çalıştırırsanız
+kullandıkça ödersiniz (soru başına yaklaşık 0,05–0,10 $). `ajan.py` içindeki
+`ETKI` sabiti ana ayar kolu — `"high"` varsayılan, `"medium"` ve `"low"` bu iş
+yükünde belirgin biçimde daha az token harcar.
+
+**Gizlilik.** Soru sorduğunuzda portföy verileriniz Anthropic API'sine gider.
+Soru sormadığınız sürece panel hiçbir veriyi dışarı göndermez.
+
+**Güvenlik sınırı.** Asistanın bütün araçları salt-okunurdur: defteri okur,
+yazamaz. İşlem giremez, kayıt silemez, düzeltemez. Bu bir tasarım kararıdır ve
+`test_ajan.py` içindeki bir testle korunur.
 
 ## Yardımcı betikler
 
