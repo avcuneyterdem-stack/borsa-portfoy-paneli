@@ -111,6 +111,10 @@ Elinde olmayan ama takip ettiğin semboller `izleme_listesi.json` içinde
 tutulur ve deftere karışmaz — portföy değerine, maliyete, K/Z hesabına
 girmez. Panelden eklenip silinir.
 
+**Toplu ekleme:** sembolleri virgül, boşluk veya alt alta yapıştırıp tek
+seferde ekleyebilirsin (`AAPL, MSFT, NVDA`). Reddedilen sembol diğerlerini
+durdurmaz — hangisinin neden girmediği tek tek bildirilir.
+
 ### Alarmlar
 
 Bir varlık seçtiğin koşula geldiğinde uyarı çıkar. Alarmlar
@@ -128,6 +132,10 @@ python anlik_takip_ajani.py --surekli    # panel kapalıyken terminalde
 Terminal betiği göstergeleri 15 dakikada bir tazeler (günlük mumla çalışır,
 her 60 saniyede 1 yıllık geçmiş indirmenin anlamı yok) ve yalnızca alarmı olan
 sembollerin geçmişini indirir. `--alarmsiz` ile kapatılabilir.
+
+**Toplu kurulum:** koşulları seç, hedefi seç (portföyündekiler / izleme listen
+/ hepsi), tek düğmeyle her varlık için kur. Aynı sembol-koşul çifti ikinci kez
+kurulmaz; düğmeye iki kez basmak uyarıları ikiye katlamaz.
 
 Koşul sağlandığı sürece her yenilemede bildirilir; bir kez uyarıp susmaz.
 Susmak, o an ekrana bakmıyorsan uyarıyı tamamen kaybettirirdi.

@@ -19,6 +19,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import uuid
 
 import indikator as ind
@@ -269,3 +270,55 @@ def etkin_kurallar(dosya=KURAL_DOSYA):
     ayarlar = kural_ayarlari_oku(dosya)
     temel = list(ind.VARSAYILAN_KURALLAR) if ayarlar["varsayilanlari_kullan"] else []
     return temel + ayarlar["kurallar"]
+
+
+# --- Toplu ekleme -----------------------------------------------------------
+# Boş bir listeyi tek tek formla doldurmak yorucu; asıl engel bu. Toplu
+# ekleme, mevcut tekil fonksiyonların üstüne kurulur — doğrulama tek yerde
+# kalsın diye kendi kuralını yazmaz.
+
+def sembol_toplu_ekle(metin, tur, dosya=IZLEME_DOSYA):
+    """Virgül, boşluk veya satırla ayrılmış sembolleri ekler.
+
+    Döner: {"eklenen": [...], "atlanan": {sembol: sebep}}
+    Bir sembolün reddedilmesi diğerlerini durdurmaz; kullanıcı hangisinin
+    neden girmediğini görmeli, hepsi birden sessizce kaybolmamalı.
+    """
+    parcalar = [p.strip().upper() for p in re.split(r"[,\s;]+", str(metin or "")) if p.strip()]
+    eklenen, atlanan = [], {}
+    for sembol in parcalar:
+        if sembol in eklenen or sembol in atlanan:
+            continue
+        sorun = sembol_ekle(sembol, tur, dosya)
+        if sorun:
+            atlanan[sembol] = sorun
+        else:
+            eklenen.append(sembol)
+    return {"eklenen": eklenen, "atlanan": atlanan}
+
+
+def alarm_var_mi(sembol, kural_adi, dosya=ALARM_DOSYA):
+    """Aynı sembol için aynı kural zaten tanımlı mı?"""
+    sembol = str(sembol).strip().upper()
+    return any(a["sembol"] == sembol and a["kural"]["ad"] == kural_adi
+               for a in alarm_oku(dosya))
+
+
+def alarm_toplu_ekle(semboller, kurallar, dosya=ALARM_DOSYA):
+    """Her sembol × her kural için alarm kurar; var olanları atlar.
+
+    Döner: {"eklenen": n, "atlanan": n}
+    Aynı alarmın ikinci kez kurulması engellenir, yoksa düğmeye iki kez
+    basmak uyarıları ikiye katlar.
+    """
+    eklenen = atlanan = 0
+    for sembol in semboller:
+        for kural in kurallar:
+            if alarm_var_mi(sembol, kural["ad"], dosya):
+                atlanan += 1
+                continue
+            if alarm_ekle(sembol, kural, dosya) is None:
+                eklenen += 1
+            else:
+                atlanan += 1
+    return {"eklenen": eklenen, "atlanan": atlanan}

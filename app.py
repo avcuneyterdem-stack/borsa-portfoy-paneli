@@ -1097,6 +1097,23 @@ with sekme7:
                 st.success(f"{yeni_sembol.strip().upper()} eklendi.")
                 st.rerun()
 
+        st.markdown("**Toplu ekle**")
+        toplu_sutun = st.columns([3, 1, 1])
+        toplu_metin = toplu_sutun[0].text_area(
+            "Semboller", key="izleme_toplu", height=68,
+            placeholder="AAPL, MSFT, NVDA — virgül, boşluk veya alt alta",
+        )
+        toplu_tur = toplu_sutun[1].selectbox("Tür", ["hisse", "kripto"], key="izleme_toplu_tur")
+        if toplu_sutun[2].button("➕ Hepsini ekle", key="izleme_toplu_ekle"):
+            sonuc = izleme.sembol_toplu_ekle(toplu_metin, toplu_tur)
+            if sonuc["eklenen"]:
+                st.success(f"Eklendi: {', '.join(sonuc['eklenen'])}")
+            for sembol, sebep in sonuc["atlanan"].items():
+                st.warning(f"{sembol} atlandı — {sebep}")
+            if sonuc["eklenen"]:
+                st.rerun()
+
+        st.markdown("---")
         if izleme_listesi:
             for kayit in izleme_listesi:
                 satir = st.columns([3, 1])
@@ -1133,6 +1150,43 @@ with sekme7:
                 else:
                     st.success(f"{alarm_sembol} için alarm kuruldu.")
                     st.rerun()
+
+        if tum_semboller and etkin_kurallar:
+            st.markdown("**Toplu kurulum**")
+            hazir_sutun = st.columns([3, 2])
+            hazir_kurallar = hazir_sutun[0].multiselect(
+                "Kurulacak koşullar", [k["ad"] for k in etkin_kurallar],
+                default=[k["ad"] for k in etkin_kurallar
+                         if k["gosterge"] == "rsi"],
+                key="alarm_toplu_kural",
+            )
+            hedef_secim = hazir_sutun[1].selectbox(
+                "Hangi varlıklara?",
+                ["Portföyümdekiler", "İzleme listem", "Hepsi"],
+                key="alarm_toplu_hedef",
+            )
+            if hedef_secim == "Portföyümdekiler":
+                hedefler = sorted(set(list(hisse_sembolleri) + list(kripto_sembolleri)))
+            elif hedef_secim == "İzleme listem":
+                hedefler = sorted(k["sembol"] for k in izleme_listesi)
+            else:
+                hedefler = tum_semboller
+
+            st.caption(f"{len(hedefler)} varlık × {len(hazir_kurallar)} koşul = "
+                       f"{len(hedefler) * len(hazir_kurallar)} alarm")
+            if st.button("🔔 Toplu alarm kur", key="alarm_toplu_dugme"):
+                if not hedefler or not hazir_kurallar:
+                    st.error("En az bir varlık ve bir koşul seçin.")
+                else:
+                    secili = [k for k in etkin_kurallar if k["ad"] in hazir_kurallar]
+                    sonuc = izleme.alarm_toplu_ekle(hedefler, secili)
+                    if sonuc["eklenen"]:
+                        st.success(f"{sonuc['eklenen']} alarm kuruldu.")
+                    if sonuc["atlanan"]:
+                        st.info(f"{sonuc['atlanan']} alarm zaten vardı, atlandı.")
+                    if sonuc["eklenen"]:
+                        st.rerun()
+            st.markdown("---")
 
         if alarmlar:
             st.markdown("**Tanımlı alarmlar**")

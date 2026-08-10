@@ -239,3 +239,63 @@ def test_kendi_kuralin_alarm_olarak_kurulabilir(calisma_dizini):
     kural, _ = ind.kural_olustur("rsi", "<", 45, "AL")
     assert izleme.alarm_ekle("AAPL", kural) is None
     assert izleme.alarmlari_degerlendir({"AAPL": {"rsi": 40}})[0]["kural_adi"] == kural["ad"]
+
+
+# --- Toplu ekleme -----------------------------------------------------------
+
+def test_toplu_sembol_virgulle_eklenir(calisma_dizini):
+    sonuc = izleme.sembol_toplu_ekle("aapl, msft, nvda", "hisse")
+    assert sonuc["eklenen"] == ["AAPL", "MSFT", "NVDA"]
+    assert len(izleme.liste_oku()) == 3
+
+
+def test_toplu_sembol_satir_ve_bosluk_da_ayirir(calisma_dizini):
+    sonuc = izleme.sembol_toplu_ekle("BTC ETH\nSOL;AVAX", "kripto")
+    assert sonuc["eklenen"] == ["BTC", "ETH", "SOL", "AVAX"]
+
+
+def test_toplu_eklemede_tekrar_atlanir_digerleri_girer(calisma_dizini):
+    izleme.sembol_ekle("AAPL", "hisse")
+    sonuc = izleme.sembol_toplu_ekle("AAPL, MSFT", "hisse")
+    assert sonuc["eklenen"] == ["MSFT"]
+    assert "AAPL" in sonuc["atlanan"]
+    assert len(izleme.liste_oku()) == 2
+
+
+def test_ayni_metindeki_tekrar_bir_kez_islenir(calisma_dizini):
+    sonuc = izleme.sembol_toplu_ekle("AAPL AAPL aapl", "hisse")
+    assert sonuc["eklenen"] == ["AAPL"] and len(izleme.liste_oku()) == 1
+
+
+def test_bos_metin_hicbir_sey_eklemez(calisma_dizini):
+    sonuc = izleme.sembol_toplu_ekle("   ,, \n ", "hisse")
+    assert sonuc["eklenen"] == [] and sonuc["atlanan"] == {}
+
+
+def test_gecersiz_tur_hepsini_atlar(calisma_dizini):
+    sonuc = izleme.sembol_toplu_ekle("AAPL, MSFT", "tahvil")
+    assert sonuc["eklenen"] == [] and len(sonuc["atlanan"]) == 2
+
+
+def test_toplu_alarm_her_sembol_icin_her_kurali_kurar(calisma_dizini):
+    kurallar = ind.VARSAYILAN_KURALLAR[:2]
+    sonuc = izleme.alarm_toplu_ekle(["AAPL", "MSFT"], kurallar)
+    assert sonuc["eklenen"] == 4 and sonuc["atlanan"] == 0
+    assert len(izleme.alarm_oku()) == 4
+
+
+def test_toplu_alarm_ikinci_kez_cogaltmaz(calisma_dizini):
+    """Düğmeye iki kez basmak uyarıları ikiye katlamamalı."""
+    kurallar = ind.VARSAYILAN_KURALLAR[:2]
+    izleme.alarm_toplu_ekle(["AAPL"], kurallar)
+    sonuc = izleme.alarm_toplu_ekle(["AAPL"], kurallar)
+    assert sonuc["eklenen"] == 0 and sonuc["atlanan"] == 2
+    assert len(izleme.alarm_oku()) == 2
+
+
+def test_alarm_var_mi_sembol_ve_kurala_bakar(calisma_dizini):
+    kural = ind.VARSAYILAN_KURALLAR[0]
+    izleme.alarm_ekle("AAPL", kural)
+    assert izleme.alarm_var_mi("aapl", kural["ad"]) is True
+    assert izleme.alarm_var_mi("MSFT", kural["ad"]) is False
+    assert izleme.alarm_var_mi("AAPL", "olmayan kural") is False
