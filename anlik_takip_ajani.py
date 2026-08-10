@@ -1,128 +1,157 @@
-import time
+#!/usr/bin/env python3
+"""Terminal tabanlı anlık portföy takibi.
+
+Her iki defterdeki varlıkları okur, canlı fiyatlarını çeker ve tabloyu
+terminale basar. Sembol sınıflandırması `portfoy_core` ile ortaktır;
+kripto varlıklar kripto defterinden gelir, sabit bir liste yoktur.
+
+Kullanım:
+    python anlik_takip_ajani.py            # bir kez yazdırır ve çıkar
+    python anlik_takip_ajani.py --surekli  # varsayılan 60 sn'de bir yeniler
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import logging
 import os
+import sys
+import time
+from zoneinfo import ZoneInfo
+
 import pandas as pd
-import yfinance as yf
-from datetime import datetime
 
-# ==========================================
-# 📂 PORTFÖY EXCEL DOSYASINI OKUMA VE DİNANİK LİSTE
-# ==========================================
-EXCEL_PATH = "portfoy_defteri_hisse.xlsx"
+import piyasa
+import portfoy_core as pc
 
-def portfoyden_varliklari_al():
-    """Excel defterinden eldeki mevcut tüm varlıkları ve tiplerini tespit eder."""
-    if not os.path.exists(EXCEL_PATH):
-        print(f"⚠️ Hata: {EXCEL_PATH} bulunamadı!")
-        return {}
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
+EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
+EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
+TSI = ZoneInfo("Europe/Istanbul")
+
+# Portföyden bağımsız, her zaman izlenen göstergeler.
+SABIT_GOSTERGELER = {
+    "GC=F": "Altın (ons, USD)",
+    "USDTRY=X": "Dolar / TL",
+    "EURTRY=X": "Euro / TL",
+}
+ONS_GRAM = 31.1035
+
+
+def defteri_oku(dosya):
+    if not os.path.exists(dosya):
+        return pc.bos_defter()
     try:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="İşlemler")
-        varliklar = df["Hisse Kodu"].dropna().unique().tolist()
-        
-        dinamik_takip = {
-            "Altın (Ons)": {"sembol": "GC=F", "tip": "METALS"},
-            "Dolar / TL": {"sembol": "USDTRY=X", "tip": "FOREX"},
-            "Gram Altın (TL)": {"sembol": "HESAPLAMA", "tip": "HESAP"}
-        }
+        return pc.sema_uygula(pd.read_excel(dosya))
+    except Exception as hata:
+        print(f"⚠️  {dosya} okunamadı: {hata}")
+        return pc.bos_defter()
 
-        for v in varliklar:
-            v_str = str(v).strip().upper()
-            
-            # Kripto tespiti
-            if v_str in ["BTC", "ETH", "SOL", "AVAX", "XRP", "ADA"]:
-                dinamik_takip[f"{v_str} (Kripto)"] = {"sembol": f"{v_str}-USD", "tip": "CRYPTO"}
-            
-            # TEFAS Fon tespiti (3 harfli ve .IS içermeyen özel fon kodları - Örn: TI2, MAC, TCD)
-            elif len(v_str) == 3 and v_str.isalpha() and not v_str.endswith(".IS"):
-                dinamik_takip[f"{v_str} (Yatırım Fonu)"] = {"sembol": f"{v_str}.IS", "tip": "FON"}
-                
-            # ABD Hisse tespiti (Örn: AAPL, NVDA, TSLA)
-            elif len(v_str) <= 4 and not v_str.endswith(".IS") and not v_str.isalpha():
-                dinamik_takip[f"{v_str} (ABD)"] = {"sembol": v_str, "tip": "US_STOCK"}
-                
-            # Borsa İstanbul Hisse tespiti (Örn: THYAO, EREGL)
-            else:
-                sadelestirilmis = v_str.replace(".IS", "")
-                dinamik_takip[f"{sadelestirilmis} (BIST)"] = {"sembol": f"{sadelestirilmis}.IS", "tip": "BIST"}
 
-        return dinamik_takip
-    except Exception as e:
-        print(f"⚠️ Excel okuma hatası: {e}")
-        return {}
+def acik_semboller(defter):
+    """Yalnızca elde pozisyonu kalan sembolleri döndürür."""
+    if defter.empty:
+        return []
+    return sorted({
+        sembol for sembol in set(defter["Hisse"]) - {""}
+        if pc.satilabilir_adet(defter, sembol) > 1e-9
+    })
 
-def anlik_fiyatlari_cek(takip_listesi):
-    """Tüm varlık tiplerini uygun yöntemle canlı takibe alır."""
-    yf_sembolleri = [v["sembol"] for v in takip_listesi.values() if v["sembol"] != "HESAPLAMA"]
-    
-    data = yf.Tickers(" ".join(yf_sembolleri))
-    fiyat_tablosu = []
-    
-    ons_altin = None
-    usd_try = None
-    
-    for etiket, detay in takip_listesi.items():
-        sembol = detay["sembol"]
-        varlik_tipi = detay["tip"]
-        
-        if sembol == "HESAPLAMA":
-            continue
-            
-        try:
-            ticker_obj = data.tickers[sembol]
-            fiyat = ticker_obj.fast_info.get('lastPrice', None)
-            onceki_kapanis = ticker_obj.fast_info.get('previousClose', None)
-            
-            if sembol == "GC=F": ons_altin = fiyat
-            if sembol == "USDTRY=X": usd_try = fiyat
-            
-            if fiyat and onceki_kapanis:
-                degisim = ((fiyat - onceki_kapanis) / onceki_kapanis) * 100
-            else:
-                degisim = 0.0
-            
-            # Etiket güncelleme (Fonlar için bilgi ekleme)
-            durum_notu = f"%{degisim:+.2f}"
-            if varlik_tipi == "FON":
-                durum_notu += " (TEFAS Gün Sonu)"
-                
-            fiyat_tablosu.append({
-                "Portföydeki Varlık": etiket,
-                "Sembol / Kod": sembol,
-                "Son Fiyat": round(fiyat, 2) if fiyat else "N/A",
-                "Değişim / Durum": durum_notu
-            })
-        except Exception:
-            fiyat_tablosu.append({
-                "Portföydeki Varlık": etiket,
-                "Sembol / Kod": sembol,
-                "Son Fiyat": "N/A",
-                "Değişim / Durum": "%0.00"
-            })
-            
-    # Gram Altın Canlı Hesabı
-    if ons_altin and usd_try:
-        gram_altin = (ons_altin * usd_try) / 31.1035
-        fiyat_tablosu.insert(0, {
-            "Portföydeki Varlık": "Gram Altın (TL)",
-            "Sembol / Kod": "CANLI HESAP",
-            "Son Fiyat": round(gram_altin, 2),
-            "Değişim / Durum": "Anlık Canlı"
+
+def tabloyu_kur(hisse_semboller, kripto_semboller):
+    satirlar = []
+
+    fiyatlar = piyasa.hisse_fiyatlari(list(hisse_semboller) + list(SABIT_GOSTERGELER))
+    kripto = piyasa.kripto_fiyatlari(kripto_semboller)
+
+    # Gram altın, ons ve dolar kurundan türetilir; ikisi de yoksa gösterilmez.
+    ons = fiyatlar.get("GC=F", {}).get("fiyat")
+    usdtry = fiyatlar.get("USDTRY=X", {}).get("fiyat")
+    if ons and usdtry:
+        satirlar.append({
+            "Varlık": "Gram Altın (TL)", "Sembol": "hesaplanan",
+            "Son Fiyat": f"{ons * usdtry / ONS_GRAM:,.2f}", "Birim": "TRY",
+            "Günlük": "—", "RSI": "—",
         })
-            
-    return pd.DataFrame(fiyat_tablosu)
+
+    for sembol, etiket in SABIT_GOSTERGELER.items():
+        veri = fiyatlar.get(sembol, {})
+        satirlar.append({
+            "Varlık": etiket, "Sembol": sembol,
+            "Son Fiyat": f"{veri['fiyat']:,.2f}" if veri.get("fiyat") else "N/A",
+            "Birim": "TRY" if sembol.endswith("TRY=X") else "USD",
+            "Günlük": f"%{veri['degisim']:+.2f}" if veri.get("degisim") is not None else "N/A",
+            "RSI": veri.get("rsi") if veri.get("rsi") is not None else "—",
+        })
+
+    for sembol in hisse_semboller:
+        kod = pc.sembol_normalize(sembol)
+        veri = fiyatlar.get(kod, {})
+        satirlar.append({
+            "Varlık": sembol, "Sembol": kod,
+            "Son Fiyat": f"{veri['fiyat']:,.2f}" if veri.get("fiyat") else "N/A",
+            "Birim": pc.varsayilan_borsa_pb(kod),
+            "Günlük": f"%{veri['degisim']:+.2f}" if veri.get("degisim") is not None else "N/A",
+            "RSI": veri.get("rsi") if veri.get("rsi") is not None else "—",
+        })
+
+    for sembol in kripto_semboller:
+        veri = kripto.get(str(sembol).upper(), {})
+        satirlar.append({
+            "Varlık": sembol, "Sembol": f"{sembol}USDT",
+            "Son Fiyat": f"{veri['fiyat']:,.4f}" if veri.get("fiyat") else "N/A",
+            "Birim": "USDT",
+            "Günlük": f"%{veri['degisim']:+.2f}" if veri.get("degisim") is not None else "N/A",
+            "RSI": "—",
+        })
+
+    return pd.DataFrame(satirlar)
+
+
+def bir_tur():
+    hisse_semboller = acik_semboller(defteri_oku(EXCEL_HISSE))
+    kripto_semboller = acik_semboller(defteri_oku(EXCEL_KRIPTO))
+    tablo = tabloyu_kur(hisse_semboller, kripto_semboller)
+
+    zaman = dt.datetime.now(TSI).strftime("%Y-%m-%d %H:%M:%S")
+    print("=" * 78)
+    print(f"⏱️  {zaman} (TSİ)  |  {len(hisse_semboller)} hisse · {len(kripto_semboller)} kripto")
+    print("-" * 78)
+    print(tablo.to_string(index=False) if not tablo.empty else "Takip edilecek varlık yok.")
+
+    fiyatsiz = int((tablo["Son Fiyat"] == "N/A").sum()) if not tablo.empty else 0
+    if fiyatsiz:
+        print(f"\n⚠️  {fiyatsiz} varlığın fiyatı çekilemedi (N/A). Değerler eksiktir.")
+    print("=" * 78)
+
+
+def main():
+    ayristirici = argparse.ArgumentParser(description=__doc__)
+    ayristirici.add_argument("--surekli", action="store_true", help="Belirli aralıkla yenile.")
+    ayristirici.add_argument(
+        "--aralik", type=int, default=60,
+        help="--surekli ile yenileme aralığı (saniye, en az 15). Varsayılan 60.",
+    )
+    secenekler = ayristirici.parse_args()
+
+    if not secenekler.surekli:
+        bir_tur()
+        return 0
+
+    # Çok sık sorgulamak sağlayıcıların hız sınırına takılır ve tüm
+    # fiyatların N/A dönmesine yol açar.
+    aralik = max(15, secenekler.aralik)
+    print(f"🚀 Anlık takip başladı ({aralik} sn'de bir). Çıkmak için Ctrl+C.")
+    try:
+        while True:
+            bir_tur()
+            time.sleep(aralik)
+    except KeyboardInterrupt:
+        print("\nDurduruldu.")
+        return 0
+
 
 if __name__ == "__main__":
-    print("🚀 Tam Teşekküllü Portföy Takip Ajanı (BIST, Kripto, Döviz, Fonlar)...")
-    print("=" * 70)
-    
-    while True:
-        takip_listesi = portfoyden_varliklari_al()
-        zaman_damgasi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        df = anlik_fiyatlari_cek(takip_listesi)
-        
-        print(f"\n⏱️  Son Güncelleme: {zaman_damgasi} | Takip Edilen Varlık Sayısı: {len(df)}")
-        print("-" * 70)
-        print(df.to_string(index=False))
-        print("=" * 70)
-        
-        time.sleep(5)
+    sys.exit(main())

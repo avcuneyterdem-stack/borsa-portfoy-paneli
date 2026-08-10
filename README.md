@@ -12,7 +12,16 @@ streamlit run app.py
 Testler:
 
 ```bash
-pytest -q          # 54 test
+pytest -q          # 60 test
+```
+
+Yardımcı betikler:
+
+```bash
+python otomatik_takip.py               # gün sonu değerini bir kez kaydet
+python otomatik_takip.py --surekli     # her gün 23:30'da (yerel kullanım)
+python anlik_takip_ajani.py            # anlık tabloyu bir kez yazdır
+python anlik_takip_ajani.py --surekli --aralik 60
 ```
 
 ## Dosya düzeni
@@ -22,8 +31,10 @@ pytest -q          # 54 test
 | `portfoy_core.py` | Saf hesap katmanı: para çevrimi, pozisyon/K-Z hesabı, RSI, şema, dayanıklı dosya yazımı. Streamlit ve ağ erişimi içermez. |
 | `app.py` | Arayüz, disk erişimi ve piyasa verisi çekimi. |
 | `test_portfoy_core.py` | Çekirdeğin birim testleri. |
-| `otomatik_takip.py` | Gecelik kapanış değeri botu. **Henüz `portfoy_core`'a taşınmadı** — aşağıya bakın. |
-| `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. **Henüz taşınmadı.** |
+| `piyasa.py` | Ağ katmanı: kurlar, hisse/kripto fiyatları. Streamlit içermez. |
+| `otomatik_takip.py` | Gün sonu portföy değerini `portfoy_gecmisi.xlsx`'e yazan bot. |
+| `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. |
+| `test_otomatik_takip.py` | Botun testleri (ağ erişimi olmadan). |
 
 Ayrım kasıtlıdır: para hesaplarındaki hatalar panelde "makul görünen ama yanlış"
 rakamlar olarak çıkar ve gözle fark edilmez. Bu yüzden hesabın tamamı ağ
@@ -107,35 +118,29 @@ Dosya kilidi yalnızca tek makinedeki eşzamanlı yazımı çözer, bu iki sorun
 bir veritabanına (ör. kullanıcı bazlı SQLite veya harici DB) geçilmelidir.
 O zamana kadar yan menüdeki **Excel indir** düğmelerini düzenli kullanın.
 
-## Taşınmayı bekleyen betikler
+## Yardımcı betikler
 
-`otomatik_takip.py` ve `anlik_takip_ajani.py`, `portfoy_core` ayrıştırılmadan
-önce yazıldı ve panelin düzeltmelerinden hiçbirini almadı. Bilinen sorunlar:
+Her ikisi de artık `portfoy_core` üzerinden hesap yapar ve kendi kur
+matematiğini taşımaz. Varsayılan olarak **bir kez çalışıp çıkarlar**;
+sürekli çalışma `--surekli` ile açılır.
 
-- `otomatik_takip.py` eski `portfoy_defteri.xlsx` adını okur; panel artık
-  `portfoy_defteri_hisse.xlsx` kullanıyor. Bot bu yüzden hiçbir şey kaydetmiyor.
-- Kur çevriminde eski hata sürüyor: bugünkü kur tarihsel tutara uygulanıyor ve
-  kur çekilemezse **sabit 34.0** varsayılıyor.
-- `anlik_takip_ajani.py`, var olmayan `"İşlemler"` sayfasını ve `"Hisse Kodu"`
-  sütununu okumaya çalışıyor (defterde sütun adı `Hisse`).
-- Her ikisi de `while True` döngüsüyle sonsuza kadar çalışır; bu, arka plan
-  servisi için uygundur ama zamanlanmış bir CI işi için değildir.
+`otomatik_takip.py`, USD/TRY kuru çekilemediğinde **hiçbir şey kaydetmez**.
+Önceki sürüm bu durumda sabit `34.0` varsayıp yanlış bir geçmiş yazıyordu;
+eksik gün, yanlış günden iyidir. Fiyatı alınamayan varlıklar `Fiyatsiz_Varlik`
+ve `Not` sütunlarına yazılır, böylece geçmişteki her satırın ne kadar eksik
+olduğu sonradan görülebilir.
 
-Bu betikler `portfoy_core.pozisyon_ozeti` üzerine taşınmalı ve CI'da tek sefer
-çalışıp çıkacak biçimde düzenlenmelidir.
+## GitHub Actions
 
-## GitHub Actions notu
+`.github/workflows/testler.yml` her push'ta testleri ve `pyflakes` taramasını
+çalıştırır.
 
-`.github/workflows/otomatik_takip.yml` gecelik çalışıp sonucu depoya geri
-yazmayı hedefliyor, ancak:
-
-- `schedule` paketi `requirements.txt` içinde yok; iş kurulum adımında kalır.
-- `while True` döngüsü nedeniyle iş kendiliğinden bitmez.
-- Defterler `.gitignore` ile hariç tutulduğu için "geri yükle" adımı zaten
-  hiçbir değişiklik bulamaz.
-
-Portföy verisi gizli olduğundan `.gitignore` kuralı doğrudur; kalıcı geçmiş
-gerekiyorsa veriyi depoya değil, ayrı bir kalıcı depoya yazmak gerekir.
+Gecelik bot bilerek CI'dan çıkarıldı. Sebebi teknik bir tercih değil, veriyle
+ilgili: defterler `.gitignore` ile hariç tutulduğu için CI checkout'unda
+**hiçbir portföy verisi yoktur** — bot orada hesaplayacak bir şey bulamaz.
+Verinin depoya konması ise portföy geçmişini depoyu görebilen herkese açardı.
+Bot bu yüzden yerelde (veya verinin bulunduğu özel bir makinede)
+`--surekli` ile çalıştırılmalıdır.
 
 ## Yatırım tavsiyesi değildir
 

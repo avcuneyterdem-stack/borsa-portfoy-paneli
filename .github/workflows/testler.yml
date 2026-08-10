@@ -1,0 +1,30 @@
+name: Testler
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Testleri çalıştır
+        run: pytest -q
+
+      - name: Sözdizimi ve ölü kod taraması
+        run: |
+          pip install pyflakes
+          python -m pyflakes app.py piyasa.py portfoy_core.py otomatik_takip.py anlik_takip_ajani.py
