@@ -33,7 +33,11 @@ python anlik_takip_ajani.py --surekli --aralik 60
 | `portfoy_core.py` | Saf hesap katmanı: para çevrimi, pozisyon/K-Z hesabı, RSI, şema, dayanıklı dosya yazımı. Streamlit ve ağ erişimi içermez. |
 | `app.py` | Arayüz, disk erişimi ve piyasa verisi çekimi. |
 | `test_portfoy_core.py` | Çekirdeğin birim testleri. |
-| `piyasa.py` | Ağ katmanı: kurlar, hisse/kripto fiyatları. Streamlit içermez. |
+| `piyasa.py` | Ağ katmanı: kurlar, hisse/kripto fiyatları, gösterge geçmişi. Streamlit içermez. |
+| `indikator.py` | Teknik göstergeler (RSI, MACD, SMA, Bollinger) ve kural motoru. Saf matematik: ağ, dosya, streamlit yok. |
+| `izleme.py` | İzleme listesi ve alarmların kalıcılığı (JSON, atomik yazım). |
+| `test_indikator.py` | Gösterge matematiğinin testleri. |
+| `test_izleme.py` | İzleme listesi ve alarm testleri. |
 | `otomatik_takip.py` | Gün sonu portföy değerini `portfoy_gecmisi.xlsx`'e yazan bot. |
 | `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. |
 | `ajan.py` | Portföy asistanı: Claude'a salt-okunur araçlar verip serbest soru yanıtlatır. |
@@ -43,6 +47,65 @@ python anlik_takip_ajani.py --surekli --aralik 60
 Ayrım kasıtlıdır: para hesaplarındaki hatalar panelde "makul görünen ama yanlış"
 rakamlar olarak çıkar ve gözle fark edilmez. Bu yüzden hesabın tamamı ağ
 erişimi olmadan test edilebilir bir modülde durur.
+
+## İndikatörler (Sekme 7)
+
+Panelin yedinci sekmesi portföyündeki ve izleme listendeki varlıklar için
+teknik göstergeleri tek tabloda toplar. Tamamı ücretsizdir — veri Yahoo
+Finance ve Binance'ten gelir, hesap kendi bilgisayarında yapılır.
+
+| Gösterge | Ayar | Not |
+|---|---|---|
+| RSI | Wilder(14) | TradingView ile aynı yöntem (basit ortalama değil) |
+| MACD | 12 / 26 / 9 | Çizgi, sinyal, histogram ve son 5 bardaki kesişim |
+| Hareketli ortalama | SMA 50 ve 200 | Altın/ölüm kesişimi ve fiyatın SMA200'e göre yeri |
+| Bollinger | 20 bar, 2σ | %B: fiyatın bantlar içindeki göreli yeri (0 alt, 1 üst) |
+
+**Veri yetmezse gösterge boş kalır.** 200 günlük ortalama 200 kapanış ister;
+yeni listelenen bir hissede bu sütun `N/A` görünür. 150 barlık veriyi "200
+günlük ortalama" diye sunmak sessizce yanlış sinyal üretirdi.
+
+### Sinyal tablosu ve kural motoru
+
+Sekmedeki **Sinyal** sütunu, `indikator.VARSAYILAN_KURALLAR` içindeki sekiz
+kuralın kaçının tetiklendiğini sayar (RSI eşikleri, MACD kesişimi, altın/ölüm
+kesişimi, Bollinger uçları). **Puan** = tetiklenen AL sayısı − tetiklenen SAT
+sayısı.
+
+Kuralların ağırlığı yoktur ve hiçbiri diğerinden değerli sayılmaz. Bu bir
+tavsiye değil, kendi kurallarının sayımıdır — bilinçli olarak böyle sade
+tutuldu, çünkü ağırlıklı bir skor "sistem biliyor" hissi verir ama dayanağı
+olmaz.
+
+### İzleme listesi
+
+Elinde olmayan ama takip ettiğin semboller `izleme_listesi.json` içinde
+tutulur ve deftere karışmaz — portföy değerine, maliyete, K/Z hesabına
+girmez. Panelden eklenip silinir.
+
+### Alarmlar
+
+Bir varlık seçtiğin koşula geldiğinde uyarı çıkar. Alarmlar
+`alarmlar.json` içinde tutulur ve sinyal tablosuyla **aynı kural motorunu**
+kullanır — alarm, bir sembole bağlanmış bir kuraldır, ayrı bir mekanizma
+değildir.
+
+Alarm iki yerde çalışır:
+
+```bash
+streamlit run app.py                     # panel açıkken sekmenin üstünde
+python anlik_takip_ajani.py --surekli    # panel kapalıyken terminalde
+```
+
+Terminal betiği göstergeleri 15 dakikada bir tazeler (günlük mumla çalışır,
+her 60 saniyede 1 yıllık geçmiş indirmenin anlamı yok) ve yalnızca alarmı olan
+sembollerin geçmişini indirir. `--alarmsiz` ile kapatılabilir.
+
+Koşul sağlandığı sürece her yenilemede bildirilir; bir kez uyarıp susmaz.
+Susmak, o an ekrana bakmıyorsan uyarıyı tamamen kaybettirirdi.
+
+> **Yatırım tavsiyesi değildir.** Teknik göstergeler geçmiş fiyat hareketinin
+> matematiksel özetidir; geleceği bilmezler.
 
 ## Defter şeması ve geçiş
 

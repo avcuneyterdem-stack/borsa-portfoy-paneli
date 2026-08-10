@@ -23,7 +23,12 @@ import streamlit.components.v1 as components
 import yfinance as yf
 from streamlit_searchbox import st_searchbox
 
+import indikator as ind
+import izleme
 import portfoy_core as pc
+# Sekme 4'te `piyasa` adında yerel bir değişken var; modülü olduğu gibi
+# içe aktarmak onu ezerdi. Yalnızca gereken fonksiyon alınıyor.
+from piyasa import gosterge_paketi as _gosterge_paketi
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 kayitci = logging.getLogger("portfoy")
@@ -521,9 +526,10 @@ if not gecmis_defteri.empty:
 # SEKMELER
 # ===========================================================================
 
-sekme1, sekme2, sekme3, sekme4, sekme5, sekme6 = st.tabs([
+sekme1, sekme2, sekme3, sekme4, sekme5, sekme6, sekme7 = st.tabs([
     "📈 Hisse Portföyü", "🪙 Kripto Portföyü", "🤖 Grafik Ajanı",
     "⚡ Canlı Radar & Makro Takvim", "💻 Sistem & QA Ajanı", "📅 Temettü",
+    "📊 İndikatörler",
 ])
 
 # --- SEKME 1: HİSSE --------------------------------------------------------
@@ -725,19 +731,25 @@ with sekme4:
             kod = pc.sembol_normalize(sembol)
             piyasa = hisse_fiyatlari.get(kod, {})
             birim = pc.varsayilan_borsa_pb(sembol)
+            rsi = piyasa.get("rsi")
             radar.append({
                 "Varlık": sembol, "Tür": "Hisse",
                 "Son Fiyat": f"{piyasa['fiyat']:,.2f}" if piyasa.get("fiyat") else "N/A",
                 "Para Birimi": birim,
                 "Günlük Değişim": f"%{piyasa['degisim']:+.2f}" if piyasa.get("degisim") is not None else "N/A",
+                "RSI(14)": f"{rsi:.1f}" if rsi is not None else "N/A",
+                "RSI Durumu": ind.rsi_durum(rsi),
             })
         for sembol in kripto_sembolleri:
             piyasa = kripto_fiyatlari.get(sembol, {})
+            rsi = kripto_rsi(sembol)
             radar.append({
                 "Varlık": sembol, "Tür": "Kripto",
                 "Son Fiyat": f"{piyasa['fiyat']:,.4f}" if piyasa.get("fiyat") else "N/A",
                 "Para Birimi": "USDT",
                 "Günlük Değişim": f"%{piyasa['degisim']:+.2f}" if piyasa.get("degisim") is not None else "N/A",
+                "RSI(14)": f"{rsi:.1f}" if rsi is not None else "N/A",
+                "RSI Durumu": ind.rsi_durum(rsi),
             })
         if radar:
             st.dataframe(pd.DataFrame(radar), use_container_width=True, hide_index=True)
@@ -915,3 +927,214 @@ st.caption(
     "Bu panel bir yatırım tavsiyesi aracı değildir. Fiyatlar gecikmeli olabilir; "
     "kayıtlarınızı düzenli olarak yedekleyin."
 )
+
+# --- SEKME 7: İNDİKATÖRLER -------------------------------------------------
+@st.cache_data(ttl=900, show_spinner=False)
+def gosterge_verisi(hisseler, kriptolar):
+    """Gösterge paketi. 15 dk önbellek: günlük mumla çalışır, sık yenilemeye
+    gerek yoktur ve her yenileme 1 yıllık geçmiş indirmek demektir."""
+    return _gosterge_paketi(list(hisseler), list(kriptolar))
+
+
+def _sayi(deger, basamak=2):
+    return "N/A" if deger is None else f"{deger:,.{basamak}f}"
+
+
+KESISIM_ETIKET = {"yukari": "▲ yukarı", "asagi": "▼ aşağı", None: "—"}
+SINYAL_RENK = {"AL yönlü": "🟢", "SAT yönlü": "🔴", "Nötr": "⚪", "Veri yok": "⚫"}
+
+with sekme7:
+    st.subheader("📊 Teknik İndikatörler")
+    st.caption(
+        "RSI(14) Wilder yöntemiyle, MACD(12/26/9) ve Bollinger(20, 2σ) günlük "
+        "kapanışlardan hesaplanır. Hesaplanamayan gösterge boş bırakılır, "
+        "tahmin edilmez."
+    )
+
+    izleme_listesi = izleme.liste_oku()
+    izleme_hisse, izleme_kripto = izleme.turlere_ayir(izleme_listesi)
+
+    kapsam = st.multiselect(
+        "Kapsam", ["Portföyüm", "İzleme listem"], default=["Portföyüm", "İzleme listem"],
+        key="ind_kapsam",
+    )
+    secili_hisse, secili_kripto = [], []
+    if "Portföyüm" in kapsam:
+        secili_hisse += list(hisse_sembolleri)
+        secili_kripto += list(kripto_sembolleri)
+    if "İzleme listem" in kapsam:
+        secili_hisse += [s for s in izleme_hisse if s not in secili_hisse]
+        secili_kripto += [s for s in izleme_kripto if s not in secili_kripto]
+
+    if not secili_hisse and not secili_kripto:
+        st.info(
+            "Gösterilecek varlık yok. Portföyünüze işlem girin ya da aşağıdaki "
+            "**İzleme listesi** bölümünden sembol ekleyin."
+        )
+        paket = {}
+    else:
+        with st.spinner("Göstergeler hesaplanıyor (1 yıllık geçmiş indiriliyor)..."):
+            paket = gosterge_verisi(tuple(sorted(secili_hisse)), tuple(sorted(secili_kripto)))
+
+        eksik = [s for s in secili_hisse + secili_kripto if s not in paket]
+        if eksik:
+            st.warning(
+                "Şu varlıkların geçmiş verisi çekilemedi, tabloda yer almıyorlar: "
+                + ", ".join(sorted(eksik))
+            )
+
+    # --- Tetiklenen alarmlar ------------------------------------------------
+    if paket:
+        tetiklenen = izleme.alarmlari_degerlendir(paket)
+        if tetiklenen:
+            st.markdown("### 🔔 Tetiklenen alarmlar")
+            for olay in tetiklenen:
+                simge = "🟢" if olay["yon"] == "AL" else "🔴"
+                deger = olay["deger"]
+                deger_metni = deger if isinstance(deger, str) else _sayi(deger)
+                st.warning(f"{simge} **{olay['sembol']}** — {olay['kural_adi']} (değer: {deger_metni})")
+
+    # --- Ana tablo ----------------------------------------------------------
+    if paket:
+        satirlar = []
+        for sembol in sorted(paket):
+            olcu = paket[sembol]
+            ozet = ind.sinyal_ozeti(olcu)
+            satirlar.append({
+                "Varlık": sembol,
+                "Fiyat": _sayi(olcu["fiyat"]),
+                "RSI(14)": _sayi(olcu["rsi"], 1),
+                "RSI Durumu": ind.rsi_durum(olcu["rsi"]),
+                "MACD Hist.": _sayi(olcu["macd_histogram"], 3),
+                "MACD Kesişim": KESISIM_ETIKET.get(olcu["macd_kesisim"], "—"),
+                "SMA50": _sayi(olcu["sma50"]),
+                "SMA200": _sayi(olcu["sma200"]),
+                "MA Kesişim": KESISIM_ETIKET.get(olcu["ma_kesisim"], "—"),
+                "Bollinger %B": _sayi(olcu["bb_yuzde_b"], 2),
+                "Sinyal": f"{SINYAL_RENK.get(ozet['etiket'], '')} {ozet['etiket']}",
+                "Puan": ozet["puan"],
+            })
+        st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
+
+        st.caption(
+            "**Puan** = tetiklenen AL kuralı sayısı − tetiklenen SAT kuralı sayısı. "
+            "Kuralların ağırlığı yoktur ve hiçbiri diğerinden değerli sayılmaz; "
+            "bu bir tavsiye değil, sizin tanımladığınız kuralların sayımıdır."
+        )
+
+        with st.expander("🔍 Varlık detayı — hangi kurallar tetiklendi?"):
+            secim = st.selectbox("Varlık", sorted(paket), key="ind_detay")
+            olcu = paket[secim]
+            ozet = ind.sinyal_ozeti(olcu)
+            sutun = st.columns(3)
+            sutun[0].metric("RSI(14)", _sayi(olcu["rsi"], 1), ind.rsi_durum(olcu["rsi"]))
+            sutun[1].metric("Fiyat", _sayi(olcu["fiyat"]))
+            sutun[2].metric("Bar sayısı", olcu["bar_sayisi"])
+            if ozet["al"]:
+                st.success("🟢 AL yönlü: " + " · ".join(ozet["al"]))
+            if ozet["sat"]:
+                st.error("🔴 SAT yönlü: " + " · ".join(ozet["sat"]))
+            if not ozet["al"] and not ozet["sat"]:
+                st.info("Hiçbir kural tetiklenmedi.")
+            if ozet["olculemedi"]:
+                st.caption("Veri yetersiz olduğu için değerlendirilemeyen kurallar: "
+                           + ", ".join(ozet["olculemedi"]))
+
+    st.markdown("---")
+
+    # --- Serbest sembol sorgusu --------------------------------------------
+    with st.expander("🔎 Serbest sembol sorgusu"):
+        st.caption("Portföyünde ve izleme listende olmayan bir sembole tek seferlik bakış.")
+        sorgu_sutun = st.columns([2, 1, 1])
+        sorgu_sembol = sorgu_sutun[0].text_input("Sembol", key="ind_sorgu_sembol",
+                                                 placeholder="AAPL, THYAO, BTC...")
+        sorgu_tur = sorgu_sutun[1].selectbox("Tür", ["hisse", "kripto"], key="ind_sorgu_tur")
+        if sorgu_sutun[2].button("Sorgula", key="ind_sorgula") and sorgu_sembol.strip():
+            hedef = sorgu_sembol.strip().upper()
+            with st.spinner(f"{hedef} göstergeleri hesaplanıyor..."):
+                tekil = gosterge_verisi(
+                    (hedef,) if sorgu_tur == "hisse" else (),
+                    (hedef,) if sorgu_tur == "kripto" else (),
+                )
+            if hedef not in tekil:
+                st.error(f"{hedef} için geçmiş veri çekilemedi. Sembol yanlış olabilir.")
+            else:
+                olcu = tekil[hedef]
+                ozet = ind.sinyal_ozeti(olcu)
+                st.markdown(f"**{hedef}** — {SINYAL_RENK.get(ozet['etiket'], '')} {ozet['etiket']}")
+                st.dataframe(pd.DataFrame([{
+                    "Fiyat": _sayi(olcu["fiyat"]), "RSI(14)": _sayi(olcu["rsi"], 1),
+                    "MACD Hist.": _sayi(olcu["macd_histogram"], 3),
+                    "SMA50": _sayi(olcu["sma50"]), "SMA200": _sayi(olcu["sma200"]),
+                    "Bollinger %B": _sayi(olcu["bb_yuzde_b"], 2),
+                }]), use_container_width=True, hide_index=True)
+
+    # --- İzleme listesi yönetimi -------------------------------------------
+    with st.expander(f"⭐ İzleme listesi ({len(izleme_listesi)} sembol)"):
+        st.caption("Elinde olmayan ama takip ettiğin semboller. Deftere ve portföy "
+                   "değerine karışmaz.")
+        ekle_sutun = st.columns([2, 1, 1])
+        yeni_sembol = ekle_sutun[0].text_input("Sembol", key="izleme_yeni",
+                                               placeholder="NVDA, ASELS, SOL...")
+        yeni_tur = ekle_sutun[1].selectbox("Tür", ["hisse", "kripto"], key="izleme_tur")
+        if ekle_sutun[2].button("➕ Ekle", key="izleme_ekle"):
+            sorun = izleme.sembol_ekle(yeni_sembol, yeni_tur)
+            if sorun:
+                st.error(sorun)
+            else:
+                st.success(f"{yeni_sembol.strip().upper()} eklendi.")
+                st.rerun()
+
+        if izleme_listesi:
+            for kayit in izleme_listesi:
+                satir = st.columns([3, 1])
+                satir[0].write(f"**{kayit['sembol']}** · {kayit['tur']}")
+                if satir[1].button("Sil", key=f"izleme_sil_{kayit['sembol']}"):
+                    izleme.sembol_sil(kayit["sembol"])
+                    st.rerun()
+        else:
+            st.info("İzleme listen boş.")
+
+    # --- Alarm yönetimi -----------------------------------------------------
+    alarmlar = izleme.alarm_oku()
+    with st.expander(f"🔔 Alarmlar ({len(alarmlar)} tanımlı)"):
+        st.caption("Bir varlık senin seçtiğin koşula geldiğinde bu sekmenin üstünde "
+                   "uyarı çıkar. Panel kapalıyken alarm çalışmaz.")
+        tum_semboller = sorted(set(list(hisse_sembolleri) + list(kripto_sembolleri)
+                                   + [k["sembol"] for k in izleme_listesi]))
+        if not tum_semboller:
+            st.info("Önce portföyüne işlem gir veya izleme listene sembol ekle.")
+        else:
+            alarm_sutun = st.columns([1, 2, 1])
+            alarm_sembol = alarm_sutun[0].selectbox("Varlık", tum_semboller, key="alarm_sembol")
+            kural_adlari = [k["ad"] for k in ind.VARSAYILAN_KURALLAR]
+            alarm_kural_adi = alarm_sutun[1].selectbox("Koşul", kural_adlari, key="alarm_kural")
+            if alarm_sutun[2].button("➕ Alarm kur", key="alarm_ekle"):
+                kural = next(k for k in ind.VARSAYILAN_KURALLAR if k["ad"] == alarm_kural_adi)
+                sorun = izleme.alarm_ekle(alarm_sembol, kural)
+                if sorun:
+                    st.error(sorun)
+                else:
+                    st.success(f"{alarm_sembol} için alarm kuruldu.")
+                    st.rerun()
+
+        if alarmlar:
+            st.markdown("**Tanımlı alarmlar**")
+            for alarm in alarmlar:
+                satir = st.columns([2, 3, 2, 1, 1])
+                satir[0].write(f"**{alarm['sembol']}**")
+                satir[1].write(alarm["kural"]["ad"])
+                satir[2].caption(f"Son tetik: {alarm.get('son_tetik') or '—'}")
+                etiket = "⏸️" if alarm.get("aktif", True) else "▶️"
+                if satir[3].button(etiket, key=f"alarm_durum_{alarm['id']}"):
+                    izleme.alarm_durum_degistir(alarm["id"], not alarm.get("aktif", True))
+                    st.rerun()
+                if satir[4].button("🗑️", key=f"alarm_sil_{alarm['id']}"):
+                    izleme.alarm_sil(alarm["id"])
+                    st.rerun()
+
+    st.info(
+        "⚠️ **Yatırım tavsiyesi değildir.** Teknik göstergeler geçmiş fiyat "
+        "hareketinin matematiksel özetidir; geleceği bilmezler. Bu tablo, "
+        "kendi kurallarını tek ekranda görmen içindir — karar senindir."
+    )

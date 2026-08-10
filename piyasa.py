@@ -230,3 +230,78 @@ def portfoy_degerle(defter_hisse, defter_kripto):
                 sonuc["deger_usd"] += pozisyon["adet"] * fiyat_usd
 
     return sonuc
+
+
+# --- Gösterge verisi --------------------------------------------------------
+# Teknik göstergeler uzun geçmiş ister: 200 günlük ortalama için 200 kapanış,
+# MACD için en az 35. `hisse_fiyatlari` 90 günle çalışır ve fiyat/RSI için
+# yeterlidir; burası ayrı tutulur ki her fiyat sorgusu 1 yıllık veri çekmesin.
+
+def hisse_kapanislari(semboller, periyot="1y"):
+    """Hisselerin kapanış serilerini toplu çeker: {kod: Series}.
+
+    Çekilemeyen sembol sonuçta hiç görünmez — boş seri döndürmek, göstergeyi
+    "hesaplanamadı" yerine "sıfır" gibi gösterme riski taşır.
+    """
+    kodlar = sorted({pc.sembol_normalize(s) for s in semboller if str(s).strip()})
+    if not kodlar:
+        return {}
+    try:
+        veri = yf.download(
+            kodlar, period=periyot, group_by="ticker",
+            auto_adjust=False, progress=False, threads=True,
+        )
+    except Exception:
+        kayitci.exception("Gösterge için kapanış geçmişi çekilemedi")
+        return {}
+
+    seriler = {}
+    for kod in kodlar:
+        try:
+            cerceve = veri if len(kodlar) == 1 else veri[kod]
+            kapanis = cerceve["Close"].dropna()
+            if len(kapanis) >= 2:
+                seriler[kod] = kapanis.reset_index(drop=True)
+        except (KeyError, IndexError, TypeError, ValueError):
+            kayitci.warning("Kapanış geçmişi ayrıştırılamadı: %s", kod)
+    return seriler
+
+
+def kripto_kapanislari(sembol, limit=400):
+    """Bir kriptonun günlük kapanış serisi (Binance). Bulunamazsa None."""
+    try:
+        yanit = requests.get(
+            f"{BINANCE}/api/v3/klines",
+            params={"symbol": f"{str(sembol).upper()}USDT", "interval": "1d",
+                    "limit": max(2, min(int(limit), 1000))},
+            timeout=10,
+        )
+        yanit.raise_for_status()
+        kapanis = pd.Series([float(mum[4]) for mum in yanit.json()])
+        return kapanis if len(kapanis) >= 2 else None
+    except Exception:
+        kayitci.warning("Kripto kapanış geçmişi alınamadı: %s", sembol)
+        return None
+
+
+def gosterge_paketi(hisse_semboller=(), kripto_semboller=()):
+    """Her sembol için tam gösterge seti döndürür: {sembol: gostergeler()}.
+
+    Sembol adı kullanıcının yazdığı hâliyle korunur (normalize edilmiş kod
+    değil), çünkü panelde defterdeki adla eşleşmesi gerekir.
+    """
+    import indikator as ind
+
+    paket = {}
+    seriler = hisse_kapanislari(hisse_semboller)
+    for sembol in hisse_semboller:
+        seri = seriler.get(pc.sembol_normalize(sembol))
+        if seri is not None:
+            paket[str(sembol)] = ind.gostergeler(seri)
+
+    for sembol in kripto_semboller:
+        seri = kripto_kapanislari(sembol)
+        if seri is not None:
+            paket[str(sembol)] = ind.gostergeler(seri)
+
+    return paket

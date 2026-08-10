@@ -2,6 +2,11 @@
 __pycache__/
 .env
 
+# Kişisel tercih dosyaları — kod değil, kullanıcı verisi
+izleme_listesi.json
+alarmlar.json
+*.json.tmp
+
 # Derleme/kurulum dosyaları ve kısayollar depoya girmemeli
 *.exe
 *.lnk
