@@ -27,7 +27,8 @@ LOAD_ERROR_KRIPTO = False
 if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
 
-REQUIRED_COLUMNS = ["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Borsa_PB"]
+# YK-1 DÜZELTMESİ: Islem_Kuru_USDTRY Şemaya Eklendi
+REQUIRED_COLUMNS = ["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Islem_Kuru_USDTRY", "Borsa_PB"]
 
 def kazan_format_temizle(kazan_metni):
     kazan_str = str(kazan_metni)
@@ -44,7 +45,7 @@ def veri_yukle(dosya_adi):
             for col in REQUIRED_COLUMNS:
                 if col not in df.columns:
                     if col == "Para_Birimi": df[col] = "USD"
-                    elif col == "Islem_Kuru": df[col] = 1.0
+                    elif col in ["Islem_Kuru", "Islem_Kuru_USDTRY"]: df[col] = 1.0
                     elif col == "Borsa_PB": df[col] = "USD"
                     else: df[col] = 0.0 if col in ["Fiyat", "Adet", "Toplam"] else ""
             df["Kazan"] = df["Kazan"].apply(kazan_format_temizle)
@@ -139,33 +140,34 @@ def wilder_rsi(series, period=14):
 @st.cache_data(ttl=120)
 def toplu_piyasa_verisi_cek(symbol_list):
     if not symbol_list: return {}
-    duzeltilmis = [hisse_kod_duzelt(s) for s in symbol_list]
+    duzeltilmis = [hisse_kod_duzelt(s) for s in symbol_list if "USDT" not in s and "-" not in s]
     duzeltilmis = list(set(duzeltilmis))
     sonuc = {}
-    try:
-        data = yf.download(duzeltilmis, period="60d", group_by='ticker', progress=False)
-        for sym in duzeltilmis:
-            try:
-                df = data[sym] if len(duzeltilmis) > 1 else data
-                df = df.dropna(how='all')
-                if not df.empty and len(df) >= 2:
-                    last_price = float(df['Close'].iloc[-1])
-                    prev_close = float(df['Close'].iloc[-2])
-                    rsi_series = wilder_rsi(df['Close'], 14)
-                    son_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else None
-                    
-                    if son_rsi and son_rsi > 70: rsi_d = "⚠️ Aşırı Alım"
-                    elif son_rsi and son_rsi < 30: rsi_d = "🟢 Aşırı Satım"
-                    else: rsi_d = "⚖️ Nötr"
-                    
-                    sonuc[sym] = {
-                        "fiyat": last_price,
-                        "degisim": ((last_price - prev_close) / prev_close) * 100,
-                        "rsi": round(son_rsi, 2) if son_rsi else None,
-                        "rsi_durum": rsi_d
-                    }
-            except Exception: pass
-    except Exception: pass
+    if duzeltilmis:
+        try:
+            data = yf.download(duzeltilmis, period="60d", group_by='ticker', progress=False)
+            for sym in duzeltilmis:
+                try:
+                    df = data[sym] if len(duzeltilmis) > 1 else data
+                    df = df.dropna(how='all')
+                    if not df.empty and len(df) >= 2:
+                        last_price = float(df['Close'].iloc[-1])
+                        prev_close = float(df['Close'].iloc[-2])
+                        rsi_series = wilder_rsi(df['Close'], 14)
+                        son_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else None
+                        
+                        if son_rsi and son_rsi > 70: rsi_d = "⚠️ Aşırı Alım"
+                        elif son_rsi and son_rsi < 30: rsi_d = "🟢 Aşırı Satım"
+                        else: rsi_d = "⚖️ Nötr"
+                        
+                        sonuc[sym] = {
+                            "fiyat": last_price,
+                            "degisim": ((last_price - prev_close) / prev_close) * 100,
+                            "rsi": round(son_rsi, 2) if son_rsi else None,
+                            "rsi_durum": rsi_d
+                        }
+                except Exception: pass
+        except Exception: pass
     return sonuc
 
 def hisse_kod_duzelt(hisse_kodu):
@@ -180,11 +182,13 @@ def hisse_detay_getir(hisse_kodu):
     try:
         t = yf.Ticker(kod)
         pb = t.fast_info.get('currency', 'USD')
+        if not pb: pb = "TRY" if kod.endswith(".IS") else "USD"
         fiyat = t.fast_info.get('lastPrice', None)
         ad = t.info.get('shortName', kod)
         return kod, fiyat, ad, pb
     except Exception:
-        return kod, None, kod, "USD"
+        fallback_pb = "TRY" if kod.endswith(".IS") else "USD"
+        return kod, None, kod, fallback_pb
 
 def binance_fiyat_getir(symbol):
     temiz = symbol.replace("USDT", "").replace("-USD", "").strip().upper() + "USDT"
@@ -259,7 +263,8 @@ if not df_gecmis_mevcut.empty:
     if hisse_filtre: df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Hisse"].str.contains(hisse_filtre, case=False, regex=False, na=False)]
     if tip_filtre == "Sadece AL 🟢": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("AL", regex=False, na=False)]
     elif tip_filtre == "Sadece SAT 🔴": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("SAT", regex=False, na=False)]
-    elif tip_filtre == "Sadece Temettü/Staking 💰": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("TEMETTÜ|STAKING", regex=False, na=False)]
+    # YK-2 DÜZELTMESİ: TEMETTÜ|STAKING Filtresinde regex=True Yapıldı!
+    elif tip_filtre == "Sadece Temettü/Staking 💰": df_sol_gecmis = df_sol_gecmis[df_sol_gecmis["Tip"].str.contains("TEMETTÜ|STAKING", regex=True, na=False)]
     
     with st.sidebar.expander("📂 Filtrelenmiş Kayıtlar (Tıkla/Aç)", expanded=True):
         st.dataframe(df_sol_gecmis.iloc[::-1][["Tarih", "Hisse", "Tip", "Fiyat", "Adet", "Para_Birimi"]], height=300, use_container_width=True)
@@ -299,49 +304,62 @@ with tab1:
         with col4: adet = st.number_input("Adet:", min_value=0.0001, value=1.0, step=1.0, format="%.4f", key="h_a")
         c1, c2, c3 = st.checkbox("🛡️ Stratejime uygun.", key="h_c1"), st.checkbox("🧠 Duygusal değil.", key="h_c2"), st.checkbox("📱 Kurumda gerçekleşti.", key="h_c3")
         
-        if st.form_submit_button("💾 Hisse İşlemini Kaydet"):
+        form_submitted = st.form_submit_button("💾 Hisse İşlemini Kaydet")
+        if form_submitted:
             if not girilen_hisse: st.error("❌ Hisse kodu seçilmedi!")
             elif not (c1 and c2 and c3): st.error("❌ Lütfen 3 onay kutusunu da işaretleyin!")
             elif fiyat is None or fiyat <= 0: st.error("❌ Geçerli bir işlem fiyatı girin!")
             elif kurlar["USD"] is None: st.error("❌ Canlı kur çekilemediği için kayıt yapılamıyor!")
             else:
                 pb_code = para_birimi.split(" ")[0]
-                anlik_kur = kurlar.get(pb_code, 1.0)
+                anlik_islem_kuru = kurlar.get(pb_code, 1.0) if pb_code != "TRY" else 1.0
+                anlik_usdtry_kuru = kurlar["USD"]
+                
                 df = veri_yukle(EXCEL_HISSE)
                 
+                # YY-1 DÜZELTMESİ: st.stop() Kaldırıldı! Sayfa Kesilmesi Engellendi
+                satis_gecerli = True
                 if "SAT" in tip:
-                    mevcut_adet = df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("AL"))]["Adet"].sum() - \
-                                 df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("SAT"))]["Adet"].sum()
+                    mevcut_adet = df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("AL", regex=False, na=False))]["Adet"].sum() - \
+                                 df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("SAT", regex=False, na=False))]["Adet"].sum()
                     if adet > mevcut_adet:
                         st.error(f"❌ Elde {mevcut_adet:.4f} adet var. {adet:.4f} adet satılamaz!")
-                        st.stop()
+                        satis_gecerli = False
 
-                yeni_veri = pd.DataFrame([{
-                    "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
-                    "Hisse": girilen_hisse, "Kazan": "B Kazanı (%40 - Büyüme)", "Tip": tip,
-                    "Fiyat": fiyat, "Adet": adet, "Toplam": fiyat * adet,
-                    "Para_Birimi": pb_code, "Islem_Kuru": anlik_kur, "Borsa_PB": borsa_pb
-                }])
-                
-                if veri_kaydet(pd.concat([df, yeni_veri], ignore_index=True), EXCEL_HISSE):
-                    st.success("✅ İşlem Tarihsel Kur ile Başarıyla Kaydedildi!")
-                    st.rerun()
+                if satis_gecerli:
+                    yeni_veri = pd.DataFrame([{
+                        "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
+                        "Hisse": girilen_hisse, "Kazan": "B Kazanı (%40 - Büyüme)", "Tip": tip,
+                        "Fiyat": fiyat, "Adet": adet, "Toplam": fiyat * adet,
+                        "Para_Birimi": pb_code, "Islem_Kuru": anlik_islem_kuru, 
+                        "Islem_Kuru_USDTRY": anlik_usdtry_kuru, "Borsa_PB": borsa_pb
+                    }])
+                    
+                    if veri_kaydet(pd.concat([df, yeni_veri], ignore_index=True), EXCEL_HISSE):
+                        st.success("✅ İşlem Tarihsel Kur ile Başarıyla Kaydedildi!")
+                        st.rerun()
 
     df_hisse = veri_yukle(EXCEL_HISSE)
     if not df_hisse.empty:
         st.markdown("---")
-        st.subheader("📊 Canlı Hisse Portföy Durumu (Tarihsel Kur & Doğru K/Z)")
+        st.subheader("📊 Canlı Hisse Portföy Durumu (Tarihsel Dolar Maliyeti & Doğru K/Z)")
         
         tum_hisseler = df_hisse["Hisse"].unique().tolist()
         batch_veriler = toplu_piyasa_verisi_cek(tum_hisseler)
         
         portfoy_ozet, t_temettu_usd, gerceklesen_kz_usd = {}, 0.0, 0.0
         
+        # YK-1 DÜZELTMESİ: İşlem Günündeki Gerçek Tarihsel Dolar Maliyeti
         for _, row in df_hisse.sort_values("Tarih").iterrows():
-            h, t, a, f, pb, ik, b_pb = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"], row.get("Para_Birimi", "USD"), row.get("Islem_Kuru", 1.0), row.get("Borsa_PB", "USD")
+            h, t, a, f, pb = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"], row.get("Para_Birimi", "USD")
+            ik = row.get("Islem_Kuru", 1.0)
+            ik_usdtry = row.get("Islem_Kuru_USDTRY", kurlar["USD"] if kurlar["USD"] else 1.0)
+            b_pb = row.get("Borsa_PB", "USD")
             
-            islem_maliyet_tl = f * a * ik if pb != "TRY" else f * a
-            islem_maliyet_usd = islem_maliyet_tl / kurlar["USD"] if kurlar["USD"] else (f * a)
+            # Tarihsel Dolar Tutar Hesabı
+            if pb == "USD": islem_maliyet_usd = f * a
+            elif pb == "TRY": islem_maliyet_usd = (f * a) / ik_usdtry
+            else: islem_maliyet_usd = (f * a * ik) / ik_usdtry # EUR/GBP -> TRY -> USD
             
             if "TEMETTÜ" in t:
                 t_temettu_usd += islem_maliyet_usd
@@ -368,9 +386,15 @@ with tab1:
                 b_data = batch_veriler.get(tam_kod, {})
                 canli_fiyat = b_data.get("fiyat", None)
                 
+                # YK-3 & YK-4 DÜZELTMESİ: Canlı Dolarlaştırma (EUR/GBP/TRY Tam Desteği)
                 if canli_fiyat and kurlar["USD"]:
-                    if v["Borsa_PB"] == "TRY": canli_usd = canli_fiyat / kurlar["USD"]
-                    else: canli_usd = canli_fiyat
+                    _, _, _, borsa_pb_canli = hisse_detay_getir(h)
+                    
+                    if borsa_pb_canli == "TRY": canli_usd = canli_fiyat / kurlar["USD"]
+                    elif borsa_pb_canli == "EUR" and kurlar["EUR"]: canli_usd = (canli_fiyat * kurlar["EUR"]) / kurlar["USD"]
+                    elif borsa_pb_canli == "GBP" and kurlar["GBP"]: canli_usd = (canli_fiyat * kurlar["GBP"]) / kurlar["USD"]
+                    elif borsa_pb_canli == "GBp" and kurlar["GBP"]: canli_usd = ((canli_fiyat / 100.0) * kurlar["GBP"]) / kurlar["USD"] # Londra Pens
+                    else: canli_usd = canli_fiyat # USD
                     
                     g_usd = v["Adet"] * canli_usd
                     kz_usd = g_usd - m_usd
@@ -388,7 +412,7 @@ with tab1:
                     "Canlı Fiyat ($)": canli_f_str,
                     "Güncel Değer ($)": g_deger_str,
                     "Açık Kâr/Zarar ($)": kz_str,
-                    "RSI (14)": b_data.get("rsi", "N/A"),
+                    "Wilder RSI (14)": b_data.get("rsi", "N/A"),
                     "RSI Durumu": b_data.get("rsi_durum", "N/A")
                 })
 
@@ -410,7 +434,7 @@ with tab1:
         edited_df_h = st.data_editor(
             df_hisse_edit, 
             column_config={"Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False)},
-            disabled=["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Borsa_PB"],
+            disabled=["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Islem_Kuru_USDTRY", "Borsa_PB"],
             hide_index=True, use_container_width=True, key="islem_editor_hisse"
         )
 
@@ -421,9 +445,9 @@ with tab1:
                 if veri_kaydet(kalan_df_h, EXCEL_HISSE):
                     st.success("✅ Seçilen kayıtlar silindi!"); st.rerun()
 
-# SEKME 2: KRİPTO PORTFÖYÜ
+# SEKME 2: KRİPTO PORTFÖYÜ (YY-2 DÜZELTMESİ: TAM KRİPTO HESAPLAMA MOTORU EKLENDİ)
 with tab2:
-    st.title("🪙 Gerçekleşen Kripto Varlık İşlem Kaydı")
+    st.title("🪙 Gerçekleşen Kripto Varlık İşlem Kaydı & Pozisyon Özeti")
     col_k1, col_k2 = st.columns([1, 1])
     with col_k1:
         secilen_kripto = st_searchbox(canlı_kripto_sorgula, key="kripto_searchbox", placeholder="Kripto Ara (Örn: BTC, ETH, SOL)...")
@@ -439,23 +463,80 @@ with tab2:
         with col3: k_adet = st.number_input("Adet:", min_value=0.000001, value=1.0, step=0.1, format="%.6f", key="k_a")
         kc1, kc2, kc3 = st.checkbox("🛡️ Stratejime uygun.", key="k_c1"), st.checkbox("🧠 Duygusal değil.", key="k_c2"), st.checkbox("📱 Kurumda gerçekleşti.", key="k_c3")
         
-        if st.form_submit_button("💾 Kripto İşlemini Kaydet"):
+        k_submitted = st.form_submit_button("💾 Kripto İşlemini Kaydet")
+        if k_submitted:
             if not girilen_kripto: st.error("❌ Kripto varlık seçilmedi!")
             elif not (kc1 and kc2 and kc3): st.error("❌ Lütfen onay kutularını işaretleyin!")
             elif k_fiyat is None or k_fiyat <= 0: st.error("❌ Geçerli fiyat girin!")
             else:
                 df_k = veri_yukle(EXCEL_KRIPTO)
-                yeni_k = pd.DataFrame([{
-                    "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
-                    "Hisse": girilen_kripto, "Kazan": "C Kazanı (%10 - Agresif)", "Tip": k_tip,
-                    "Fiyat": k_fiyat, "Adet": k_adet, "Toplam": k_fiyat * k_adet,
-                    "Para_Birimi": "USD", "Islem_Kuru": 1.0, "Borsa_PB": "USD"
-                }])
-                if veri_kaydet(pd.concat([df_k, yeni_k], ignore_index=True), EXCEL_KRIPTO):
-                    st.success("✅ Kripto İşlemi Kaydedildi!"); st.rerun()
+                
+                # KRİPTO SATIŞ GUARD'I
+                k_satis_gecerli = True
+                if "SAT" in k_tip:
+                    m_k_adet = df_k[(df_k["Hisse"] == girilen_kripto) & (df_k["Tip"].str.contains("AL", regex=False, na=False))]["Adet"].sum() - \
+                               df_k[(df_k["Hisse"] == girilen_kripto) & (df_k["Tip"].str.contains("SAT", regex=False, na=False))]["Adet"].sum()
+                    if k_adet > m_k_adet:
+                        st.error(f"❌ Elde {m_k_adet:.6f} adet var. {k_adet:.6f} adet satılamaz!")
+                        k_satis_gecerli = False
+
+                if k_satis_gecerli:
+                    yeni_k = pd.DataFrame([{
+                        "Tarih": datetime.datetime.now(TSI).strftime("%Y-%m-%d %H:%M"),
+                        "Hisse": girilen_kripto, "Kazan": "C Kazanı (%10 - Agresif)", "Tip": k_tip,
+                        "Fiyat": k_fiyat, "Adet": k_adet, "Toplam": k_fiyat * k_adet,
+                        "Para_Birimi": "USD", "Islem_Kuru": 1.0, "Islem_Kuru_USDTRY": kurlar["USD"] if kurlar["USD"] else 1.0, "Borsa_PB": "USD"
+                    }])
+                    if veri_kaydet(pd.concat([df_k, yeni_k], ignore_index=True), EXCEL_KRIPTO):
+                        st.success("✅ Kripto İşlemi Kaydedildi!"); st.rerun()
 
     df_kripto_data = veri_yukle(EXCEL_KRIPTO)
     if not df_kripto_data.empty:
+        st.markdown("---")
+        st.subheader("🪙 Canlı Kripto Portföy Durumu (Binance Real-Time)")
+        
+        k_ozet, t_k_maliyet, t_k_deger, k_gerceklesen_kz = {}, 0.0, 0.0, 0.0
+        for _, row in df_kripto_data.sort_values("Tarih").iterrows():
+            coin, t, a, f = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"]
+            if coin not in k_ozet: k_ozet[coin] = {"Adet": 0.0, "Toplam_Maliyet": 0.0}
+            
+            if "AL" in t:
+                k_ozet[coin]["Adet"] += a
+                k_ozet[coin]["Toplam_Maliyet"] += (f * a)
+            elif "SAT" in t and k_ozet[coin]["Adet"] > 0:
+                ort = k_ozet[coin]["Toplam_Maliyet"] / k_ozet[coin]["Adet"]
+                k_gerceklesen_kz += (f * a - a * ort)
+                k_ozet[coin]["Adet"] -= a
+                k_ozet[coin]["Toplam_Maliyet"] -= (a * ort)
+
+        ozet_kripto_list = []
+        for coin, v in k_ozet.items():
+            if v["Adet"] > 0.000001:
+                c_fiyat = binance_fiyat_getir(coin)
+                maliyet = v["Toplam_Maliyet"]
+                if c_fiyat:
+                    g_deger = v["Adet"] * c_fiyat
+                    kz = g_deger - maliyet
+                    t_k_maliyet += maliyet
+                    t_k_deger += g_deger
+                    c_f_str, g_d_str, kz_str = f"${c_fiyat:,.4f}", f"${g_deger:,.2f}", f"${kz:,.2f}"
+                else: c_f_str, g_d_str, kz_str = "N/A", "N/A", "N/A"
+                
+                ozet_kripto_list.append({
+                    "Kripto": coin, "Adet": round(v["Adet"], 6),
+                    "Ort. Maliyet ($)": round(maliyet / v["Adet"], 4),
+                    "Canlı Fiyat ($)": c_f_str, "Güncel Değer ($)": g_d_str, "Kâr/Zarar ($)": kz_str
+                })
+
+        km1, km2, km3, km4 = st.columns(4)
+        km1.metric("Kripto Toplam Maliyet ($)", f"${t_k_maliyet:,.2f}" if t_k_maliyet else "N/A")
+        km2.metric("Kripto Güncel Değer ($)", f"${t_k_deger:,.2f}" if t_k_deger else "N/A")
+        km3.metric("Açık Kripto K/Z ($)", f"${t_k_deger - t_k_maliyet:,.2f}" if t_k_deger else "N/A")
+        km4.metric("Satış K/Z ($)", f"${k_gerceklesen_kz:,.2f}")
+
+        if ozet_kripto_list:
+            st.dataframe(pd.DataFrame(ozet_kripto_list), use_container_width=True)
+
         st.markdown("---")
         st.subheader("📜 Tüm Geçmiş Kripto İşlem Kayıtları")
         df_kripto_edit = df_kripto_data.copy()
@@ -490,7 +571,7 @@ with tab3:
           </script>
         </div>""", height=620)
 
-# SEKME 4: CANLI TAKİP RADARI & MAKRO TAKVİM
+# SEKME 4: CANLI TAKİP RADARI & MAKRO TAKVİM (YY-2 DÜZELTMESİ: KRİPTO RADARI DÜZELTİLDİ)
 with tab4:
     st.title("⚡ Canlı Takip Radarı & Küresel Makro Takvim")
     col_rad1, col_rad2 = st.columns([1, 1])
@@ -499,29 +580,41 @@ with tab4:
         st.subheader("📋 Portföydeki Varlıkların Canlı Durumu")
         df_h_m = veri_yukle(EXCEL_HISSE)
         df_k_m = veri_yukle(EXCEL_KRIPTO)
-        p_varliklar = list(set(df_h_m["Hisse"].dropna().tolist() + df_k_m["Hisse"].dropna().tolist()))
         
-        if p_varliklar:
-            batch_r = toplu_piyasa_verisi_cek(p_varliklar)
-            radar_tablosu = []
-            for v in sorted(p_varliklar):
+        p_hisseler = list(set(df_h_m["Hisse"].dropna().tolist()))
+        p_kriptolar = list(set(df_k_m["Hisse"].dropna().tolist()))
+        
+        radar_tablosu = []
+        if p_hisseler:
+            batch_r = toplu_piyasa_verisi_cek(p_hisseler)
+            for v in sorted(p_hisseler):
                 kod = hisse_kod_duzelt(v)
                 b_d = batch_r.get(kod, {})
                 fiyat = b_d.get("fiyat", None)
                 degisim = b_d.get("degisim", None)
                 radar_tablosu.append({
-                    "Varlık": v,
+                    "Varlık": f"🌐 {v}",
                     "Son Fiyat": f"{fiyat:,.2f}" if fiyat else "N/A",
                     "Günlük Değişim": f"%{degisim:+.2f}" if degisim is not None else "N/A"
                 })
-            st.dataframe(pd.DataFrame(radar_tablosu), use_container_width=True)
+                
+        if p_kriptolar:
+            for k in sorted(p_kriptolar):
+                kf = binance_fiyat_getir(k)
+                radar_tablosu.append({
+                    "Varlık": f"🪙 {k} / USDT",
+                    "Son Fiyat": f"${kf:,.4f}" if kf else "N/A",
+                    "Günlük Değişim": "Canlı Stream"
+                })
+                
+        if radar_tablosu: st.dataframe(pd.DataFrame(radar_tablosu), use_container_width=True)
         else: st.info("Portföyünüz henüz boş.")
 
     with col_rad2:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (TÜM BİLEŞENLERİYLE YENİDEN ENTEGRE)
+# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (GERİ YÜKLENEN FULL SKILL'LER)
 with tab5:
     st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
     st.caption("Ajan Becerileri: Sistem Denetimi, Kategorili FinTek Araştırması, Hassasiyet Test Laboratuvarı ve Yol Haritası.")
@@ -551,7 +644,7 @@ with tab5:
             us_hisseler = [h for h in h_hisseler if not str(h).endswith(".IS")]
             return [
                 f"🌐 **Küresel Varlık Analizi:** Portföyünüzde şu an {len(us_hisseler)} adet ABD/Global hisse senedi tespit edildi.",
-                "💵 **Tarihsel Dolarlaştırma Otomasyonu:** ABD Hisseleri işlem günündeki tarihsel kurlarla maliyetlendiriliyor.",
+                "💵 **Tarihsel Dolarlaştırma Otomasyonu (YK-1 Çözüldü ✅):** ABD Hisseleri işlem günündeki tarihsel kurlarla maliyetlendiriliyor.",
                 "🏛️ **FED / Makro Takvim:** Canlı küresel ekonomik takvim 4. Sekmeye entegre çalışmaktadır."
             ]
         elif "indikatör" in konu.lower():
@@ -560,7 +653,7 @@ with tab5:
                 batch_res = toplu_piyasa_verisi_cek([ornek_hisse])
                 b_item = batch_res.get(hisse_kod_duzelt(ornek_hisse), {})
                 return [
-                    f"📊 **Canlı İndikatör Testi ({ornek_hisse}):** RSI(14) = **{b_item.get('rsi', 'N/A')}** ({b_item.get('rsi_durum', 'N/A')}).",
+                    f"📊 **Canlı İndikatör Testi ({ornek_hisse}):** Wilder RSI(14) = **{b_item.get('rsi', 'N/A')}** ({b_item.get('rsi_durum', 'N/A')}).",
                     "📈 **Wilder RSI Motoru:** Tüm portföy için anlık aşırı alım/satım sinyalleri standart formülle hesaplanıyor.",
                     "🎯 **Sıradaki Hedef:** Kırılım noktalarını ölçmek için Bollinger Bantları entegrasyonu."
                 ]
@@ -677,8 +770,8 @@ with tab5:
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
     1. Ar-Ge Ajanının açılır menü kategorileri ve araştırmaları eksiksiz geri yüklendi.
-    2. QA Test Laboratuvarındaki 4 farkı hassasiyet modülü canlı çalıştırma altyapısıyla birleştirildi.
-    3. Güvenli atomik kayıt ve tarihsel kur dondurma mimarisi bozulmadan korundu.
+    2. YK-1, YK-2, YK-3, YK-4, YY-1 ve YY-2 raporundaki kritik finansal hatalar ve st.stop() kesintisi tamamen düzeltildi.
+    3. Kripto portföyü canlı hesaplama motoruna bağlandı, tüm ajan yetenekleri aktifleştirildi.
     """)
 
 # SEKME 6: TEMETTÜ TAKVİMİ
@@ -708,5 +801,5 @@ with tab6:
         st.subheader("💼 Portföy Temettü Özeti")
         df_h_m = veri_yukle(EXCEL_HISSE)
         if not df_h_m.empty:
-            st.dataframe(df_h_m[df_h_m["Tip"].str.contains("TEMETTÜ")][["Tarih", "Hisse", "Fiyat", "Adet", "Toplam", "Para_Birimi"]], use_container_width=True)
+            st.dataframe(df_h_m[df_h_m["Tip"].str.contains("TEMETTÜ", regex=False, na=False)][["Tarih", "Hisse", "Fiyat", "Adet", "Toplam", "Para_Birimi"]], use_container_width=True)
         else: st.info("Temettü kaydı yok.")
