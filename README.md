@@ -4,6 +4,8 @@ Hisse senedi ve kripto portföyünü dolar bazında takip eden Streamlit paneli.
 
 ## Kurulum ve çalıştırma
 
+Windows'ta ilk kez kuruyorsan adım adım anlatım: [KURULUM_WINDOWS.md](KURULUM_WINDOWS.md).
+
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
