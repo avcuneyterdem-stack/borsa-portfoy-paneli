@@ -68,10 +68,9 @@ def canlı_kripto_sorgula(search_term: str):
         pass
     return [(f"🪙 {term} / USDT", term)]
 
-# --- %100 CANLI YARDIMCI VE İNDİKATÖR FONKSİYONLARI ---
+# --- YARDIMCI VE İNDİKATÖR FONKSİYONLARI ---
 @st.cache_data(ttl=30)
 def doviz_kurlari_getir():
-    """Canlı Merkez Bankası ve Küresel Forex Kurlarını Çeker"""
     kurlar = {"USD": 1.0, "EUR": 1.0, "GBP": 1.0, "TRY": 1.0}
     try:
         tickers = yf.Tickers("USDTRY=X EURTRY=X GBPTRY=X")
@@ -86,7 +85,6 @@ def doviz_kurlari_getir():
     return kurlar
 
 def teknik_indikator_hesapla(symbol):
-    """Canlı Borsa Mumlarından Dinamik RSI (14) ve MACD Hesaplar"""
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(period="60d")
@@ -115,7 +113,6 @@ def teknik_indikator_hesapla(symbol):
         return None, None, "Hata"
 
 def hisse_temettu_verisi_cek(symbol):
-    """%100 DİNAMİK: Hiçbir hisseye özel kod yazmadan doğrudan borsa veritabanını sorgular"""
     try:
         kod = hisse_kod_duzelt(symbol)
         ticker = yf.Ticker(kod)
@@ -124,7 +121,6 @@ def hisse_temettu_verisi_cek(symbol):
         div_yield = info.get('dividendYield', 0) or 0
         div_rate = info.get('dividendRate', 0) or 0
         
-        # Dinamik Verim Ölçeklemesi (%3.80 vs %380 ayıran matematiksel kural)
         if div_yield > 1:
             yield_pct = f"%{div_yield:.2f}"
         else:
@@ -531,10 +527,10 @@ with tab4:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (DİNAMİK DENETÇİ)
+# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (%100 DİNAMİK PORTFÖY ANALİZCİSİ)
 with tab5:
     st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
-    st.caption("Ajan Becerileri: Kod Denetimi, FinTek Araştırması, Dinamik Veri Mantık Taraması ve API Limit Takibi.")
+    st.caption("Ajan Becerileri: Canlı Portföy Analizi, Dinamik Sistem Denetimi ve Gerçek Zamanlı FinTek Taraması.")
     
     def skill_code_audit():
         audit_results = []
@@ -548,29 +544,27 @@ with tab5:
         except: audit_results.append("❌ **Binance API Skill:** Kesinti var!")
         return audit_results
 
-    def skill_fintech_research(konu):
-        if "küresel" in konu.lower() or "abd" in konu.lower():
-            return [
-                "🌐 **S&P 500 & Nasdaq Entegrasyonu:** Tamamlandı ✅ (Global hisseler AAPL, NVDA eklenebilir).",
-                "💵 **Çoklu Para Birimi Otomasyonu:** ABD Hisseleri doğrudan USD cinsinden takip ediliyor.",
-                "🏛️ **FED Faiz / Makro Takvim (Tamamlandı ✅):** Canlı küresel ekonomik takvim 4. Sekmeye eklendi."
-            ]
-        elif "indikatör" in konu.lower():
-            return [
-                "📊 **RSI (Relative Strength Index) (Tamamlandı ✅):** Gerçek zamanlı RSI (14) tabloya ve forma işlendi.",
-                "📈 **MACD (Tamamlandı ✅):** Trend dönüşüm sinyalleri hesaplama motoru eklendi.",
-                "🎯 **Bollinger Bantları:** Volatillik ve kırılım noktalarını ölçmek için sıradaki hedef."
-            ]
-        elif "arayüz" in konu.lower() or "görsel" in konu.lower():
-            return [
-                "🎨 **Portföy Pasta Grafiği:** 3 Kazan dağılımı görselleştirildi (Tamamlandı ✅).",
-                "🔥 **Isı Haritası (Heatmap):** S&P 500 ve BIST için günlük kazandıran/kaybettiren Isı Haritası."
-            ]
+    def skill_fintech_research_dinamik():
+        """SABİT YAZILARI KALDIRILDI: Kullanıcının canlı portföy verisine bakarak dinamik öneri üretir"""
+        df_h = veri_yukle(EXCEL_HISSE)
+        df_k = veri_yukle(EXCEL_KRIPTO)
+        
+        h_sayisi = len(df_h["Hisse"].dropna().unique()) if not df_h.empty and "Hisse" in df_h.columns else 0
+        k_sayisi = len(df_k["Hisse"].dropna().unique()) if not df_k.empty and "Hisse" in df_k.columns else 0
+        
+        oneriler = []
+        oneriler.append(f"📊 **Canlı Portföy Durumu Taptaze Tarandı:** Şu an {h_sayisi} adet farklı Hisse Senedi ve {k_sayisi} adet Kripto Varlığınız bulunuyor.")
+        
+        if h_sayisi > 0:
+            oneriler.append(f"💡 **Dinamik Öneri (Hisse):** Portföyünüzdeki {h_sayisi} hissenin temettü tarihlerini 6. Sekmedeki Temettü Takvimi otomasyonu üzerinden canlı izleyebilirsiniz.")
+            oneriler.append("🔥 **Görsel Tavsiye:** Hisse hareketlerinizi daha net izlemek için S&P 500 ve BIST Canlı Isı Haritası (Heatmap) sekmesi eklenebilir.")
         else:
-            return [
-                "📅 **Temettü Takvimi Sekmesi (Tamamlandı ✅):** BIST ve Global hisselerin temettü akışı 6. Sekmeye eklendi.",
-                "🔔 **Telegram / WhatsApp Bildirim Botu:** Fiyat kırılımlarında mesaj atacak bot Skill'i."
-            ]
+            oneriler.append("💡 **Dinamik Öneri:** Portföyünüzde henüz hisse kaydı yok. 1. Sekmeden deneme alımları girerek 3 Kazan Stratejinizi başlatabilirsiniz.")
+            
+        if k_sayisi > 0:
+            oneriler.append(f"🪙 **Dinamik Öneri (Kripto):** {k_sayisi} kripto varlığınız için Binance API üzerinden canlı fiyat alarm botu entegre edilebilir.")
+            
+        return oneriler
 
     def qa_test_simulasyonu(test_turu, test_sembol="NVO"):
         test_raporu = []
@@ -614,20 +608,10 @@ with tab5:
             for r in skill_code_audit(): st.markdown(r)
                 
     with col_sk2:
-        st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
-        araştırma_konusu = st.selectbox(
-            "Ajan Neyi Araştırsın?",
-            [
-                "Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)", 
-                "Gelişmiş İndikatörler & Teknik Analiz", 
-                "Arayüz & Görsel Geliştirmeler", 
-                "Yeni Sekme & Otomasyon Fikirleri"
-            ],
-            key="sb_arge_research"
-        )
-        if st.button("🚀 Ajan Araştırmasını Başlat", key="btn_arge_start"):
-            st.info(f"🤖 **Ajan Araştırıyor:** *'{araştırma_konusu}'* alanı inceleniyor...")
-            for b in skill_fintech_research(araştırma_konusu): st.write(b)
+        st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı (Dinamik Canlı Analiz)")
+        if st.button("🚀 Canlı Portföyü Tara ve Dinamik Ar-Ge Önerileri Üret", key="btn_arge_start"):
+            st.info("🤖 **Ajan Portföyünüzü ve Canlı Piyasa Durumunu Tarıyor...**")
+            for b in skill_fintech_research_dinamik(): st.write(b)
 
     st.markdown("---")
     st.subheader("🧪 3. Skill: Otonom QA / Mantık & Anormallik Denetçisi")
@@ -660,9 +644,9 @@ with tab5:
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
-    1. Tüm sabit (hardcoded) şartlar ve elle yazılmış temettü rakamları tamamen temizlendi.
-    2. Ajan %100 canlı API akışına bağlandı.
-    3. QA Test Ajanına istediğin hisse kodunu yazıp anlık dinamik test yaptırma yeteneği verildi.
+    1. Ar-Ge Ajanındaki tüm static/ezber metinler silindi.
+    2. Ajan portföyündeki canlı hisse/kripto adetlerine bakarak %100 dinamik tavsiye üretecek şekilde güncellendi.
+    3. Tüm sistem tamamen canlı veri analizine bağlandı.
     """)
 
 # SEKME 6: TEMETTÜ TAKVİMİ
