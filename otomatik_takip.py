@@ -42,11 +42,13 @@ GECMIS_SUTUNLARI = [
 
 
 def defteri_oku(dosya):
-    """Defteri okur. Dosya yoksa boş defter, okunamıyorsa None döner."""
-    if not os.path.exists(dosya):
-        return pc.bos_defter()
+    """Defteri okur. Dosya yoksa boş defter, okunamıyorsa None döner.
+
+    None ile boş defterin ayrı olması önemli: okunamayan bir defterle
+    hesaplanan gün sonu değeri, sessizce eksik bir geçmiş yazar.
+    """
     try:
-        return pc.sema_uygula(pd.read_excel(dosya))
+        return pc.defter_oku(dosya)
     except Exception as hata:
         kayitci.error("%s okunamadı: %s", dosya, hata)
         return None

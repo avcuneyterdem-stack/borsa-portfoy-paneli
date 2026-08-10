@@ -86,6 +86,19 @@ def bos_defter():
     return sema_uygula(pd.DataFrame(columns=ZORUNLU_SUTUNLAR))
 
 
+def defter_oku(dosya, okuyucu=None):
+    """Defteri diskten okuyup şemayı uygular. Dosya yoksa boş defter döner.
+
+    Okuma hatası bilerek yükseltilir, yutulmaz: çağıran taraf "dosya yok" ile
+    "dosya okunamadı" durumlarını ayırt edemezse, bozuk bir dosyanın üzerine
+    boş defter yazma riski doğar.
+    """
+    okuyucu = okuyucu or pd.read_excel
+    if not os.path.exists(dosya):
+        return bos_defter()
+    return sema_uygula(okuyucu(dosya))
+
+
 def tarihe_gore_sirala(df):
     if df.empty:
         return df, 0

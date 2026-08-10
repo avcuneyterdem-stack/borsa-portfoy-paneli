@@ -759,43 +759,58 @@ with sekme4:
 
 # --- SEKME 5: SİSTEM & QA --------------------------------------------------
 with sekme5:
-    st.subheader("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
-    st.caption("Ajan Becerileri: Sistem Denetimi, FinTek Araştırması, Gerçek Zamanlı Ölçüm ve Yol Haritası.")
+    st.subheader("💻 Portföy Asistanı & Sistem Durumu")
 
-    col_sk1, col_sk2 = st.columns(2)
-    with col_sk1:
-        st.markdown("### 🧪 1. Skill: Otonom Sistem & Kod Denetimi")
-        if st.button("🔍 Kod Sağlığını ve Veri Yollarını Tara"):
-            st.write(f"{'✅' if os.path.exists(EXCEL_HISSE) else '⚠️'} **Hisse Veri Tabanı:** `{EXCEL_HISSE}`")
-            st.write(f"{'✅' if os.path.exists(EXCEL_KRIPTO) else '⚠️'} **Kripto Veri Tabanı:** `{EXCEL_KRIPTO}`")
-            baslangic = time.monotonic()
-            try:
-                r = requests.get(f"{BINANCE}/api/v3/ping", timeout=3)
-                gecikme = (time.monotonic() - baslangic) * 1000
-                st.write(f"✅ **Binance API Latency:** `{gecikme:.0f} ms` (Status: {r.status_code})")
-            except Exception as e:
-                st.write(f"❌ **Binance API:** Erişilemedi - {e}")
+    st.markdown("### 🤖 Portföy Asistanı")
+    st.caption(
+        "Portföyünüz hakkında serbest soru sorun. Asistan defterinizi ve canlı "
+        "fiyatları okuyabilir; **yazamaz** — işlem giremez, kayıt değiştiremez."
+    )
 
-    with col_sk2:
-        st.markdown("### 🔎 2. Skill: Ar-Ge & FinTek Araştırmacısı")
-        arge_konu = st.selectbox(
-            "Ajan Neyi Araştırsın?",
-            [
-                "Küresel Piyasalar & ABD Borsaları (NYSE/Nasdaq)",
-                "Gelişmiş İndikatörler & Teknik Analiz",
-                "Arayüz & Görsel Geliştirmeler",
-                "Yeni Sekme & Otomasyon Fikirleri"
-            ]
+    soru = st.text_input(
+        "Sorunuz:",
+        placeholder="Örn: Portföyümde ne durumdayım? En çok hangi varlıkta zarardayım?",
+        key="asistan_sorusu",
+    )
+    if st.button("💬 Sor", key="asistan_sor") and soru.strip():
+        with st.spinner("Asistan defterinizi okuyor..."):
+            import ajan
+            yanit = ajan.sor(soru)
+
+        if yanit["hata"]:
+            st.error(yanit["hata"])
+        else:
+            st.markdown(yanit["cevap"])
+            st.caption(
+                f"{yanit['girdi_token']:,} girdi + {yanit['cikti_token']:,} çıktı token"
+                f" · kullanılan araçlar: {', '.join(yanit['arac_cagrilari']) or 'yok'}"
+            )
+
+    with st.expander("ℹ️ Asistan hakkında — kurulum, gizlilik, maliyet"):
+        st.markdown(
+            "**Kurulum.** Terminalde bir kez `ant auth login` çalıştırmanız yeterli; "
+            "Claude hesabınızla giriş yapar ve bilgisayarınızda bir profil saklar. "
+            "API anahtarı gerekmez.\n\n"
+            "**Maliyet.** Bu profille çalışırken ek ödeme çıkmaz — kullanım "
+            "Claude aboneliğinizin kotasından düşer. Bunun yerine "
+            "`ANTHROPIC_API_KEY` tanımlarsanız kullandıkça ücretlendirilirsiniz.\n\n"
+            "**Gizlilik.** Soru sorduğunuzda portföy verileriniz (pozisyonlar, "
+            "maliyetler, kâr/zarar) Anthropic API'sine gönderilir. Soru sormadığınız "
+            "sürece hiçbir veri dışarı çıkmaz."
         )
-        if st.button("🚀 Ajan Araştırmasını Başlat"):
-            if "küresel" in arge_konu.lower():
-                st.write("🌐 **Küresel Varlık Analizi:** ABD hisseleri tarihsel USDTRY kuruyla dolar bazında sabit maliyetlenmektedir.")
-            elif "indikatör" in arge_konu.lower():
-                st.write("📊 **Wilder RSI (14) Motoru:** Standart ewm periyodu ile aşırı alım/satım sinyalleri üretilmektedir.")
-            elif "arayüz" in arge_konu.lower():
-                st.write("🎨 **Görselleştirmeler:** 3 Kazan Pasta Grafiği ve Canlı Radar Matrisi aktif çalışmaktadır.")
-            else:
-                st.write("📅 **Otomasyon:** Temettü Takvimi ve Akıllı Alarm Botu altyapısı hazırlandı.")
+
+    st.markdown("---")
+    st.markdown("### 🔌 Servis ve Dosya Denetimi")
+    if st.button("🔍 Kontrol et", key="sistem_kontrol"):
+        st.write(f"{'✅' if os.path.exists(EXCEL_HISSE) else 'ℹ️'} **Hisse defteri:** `{EXCEL_HISSE}`")
+        st.write(f"{'✅' if os.path.exists(EXCEL_KRIPTO) else 'ℹ️'} **Kripto defteri:** `{EXCEL_KRIPTO}`")
+        baslangic = time.monotonic()
+        try:
+            r = requests.get(f"{BINANCE}/api/v3/ping", timeout=3)
+            gecikme = (time.monotonic() - baslangic) * 1000
+            st.write(f"{'✅' if r.ok else '⚠️'} **Binance API:** HTTP {r.status_code} · `{gecikme:.0f} ms`")
+        except Exception as e:
+            st.write(f"❌ **Binance API:** erişilemedi — {e}")
 
     st.markdown("---")
     st.markdown("### 📊 Gerçek Zamanlı Süreç & Sistem Durumu")
