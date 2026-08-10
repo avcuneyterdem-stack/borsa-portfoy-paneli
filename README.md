@@ -63,6 +63,11 @@ Finance ve Binance'ten gelir, hesap kendi bilgisayarında yapılır.
 | Hareketli ortalama | SMA 50 ve 200 | Altın/ölüm kesişimi ve fiyatın SMA200'e göre yeri |
 | Bollinger | 20 bar, 2σ | %B: fiyatın bantlar içindeki göreli yeri (0 alt, 1 üst) |
 
+Kesişim sütunları üç durumu ayırır: `▲ yukarı` / `▼ aşağı` (kesişim oldu),
+`—` (arandı, bulunamadı), `veri yok` (aranamadı, geçmiş yetersiz). Bu ayrım
+sinyal etiketini belirler: hiçbir kuralı tetiklenmeyen ama tüm göstergeleri
+hesaplanmış bir varlık **Nötr**'dür, "Veri yok" değil.
+
 **Veri yetmezse gösterge boş kalır.** 200 günlük ortalama 200 kapanış ister;
 yeni listelenen bir hissede bu sütun `N/A` görünür. 150 barlık veriyi "200
 günlük ortalama" diye sunmak sessizce yanlış sinyal üretirdi.

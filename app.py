@@ -940,7 +940,9 @@ def _sayi(deger, basamak=2):
     return "N/A" if deger is None else f"{deger:,.{basamak}f}"
 
 
-KESISIM_ETIKET = {"yukari": "▲ yukarı", "asagi": "▼ aşağı", None: "—"}
+# "yok" = kesişim aranmış, bulunamamış. None = veri yetersiz, aranamamış.
+KESISIM_ETIKET = {"yukari": "▲ yukarı", "asagi": "▼ aşağı",
+                  "yok": "—", None: "veri yok"}
 SINYAL_RENK = {"AL yönlü": "🟢", "SAT yönlü": "🔴", "Nötr": "⚪", "Veri yok": "⚫"}
 
 with sekme7:

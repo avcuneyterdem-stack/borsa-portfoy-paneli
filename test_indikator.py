@@ -112,15 +112,23 @@ def test_asagi_kesisim_yakalanir():
     assert ind.kesisim(hizli, yavas) == "asagi"
 
 
-def test_kesisim_yoksa_none():
-    assert ind.kesisim(pd.Series([6.0, 7.0, 8.0]), pd.Series([1.0, 1.0, 1.0])) is None
+def test_kesisim_yoksa_yok_doner():
+    """Karşılaştırma yapıldıysa sonuç 'yok'tur, None değil."""
+    assert ind.kesisim(pd.Series([6.0, 7.0, 8.0]), pd.Series([1.0, 1.0, 1.0])) == "yok"
+
+
+def test_kesisim_veri_yetersizse_none_doner():
+    """None yalnızca 'karşılaştıramadım' demektir."""
+    assert ind.kesisim(pd.Series([1.0]), pd.Series([2.0])) is None
+    assert ind.kesisim(None, pd.Series([1.0, 2.0])) is None
+    assert ind.kesisim(pd.Series(dtype="float64"), pd.Series(dtype="float64")) is None
 
 
 def test_eski_kesisim_pencere_disinda_sayilmaz():
     """20 bar önceki kesişim bugünün sinyali değildir."""
     hizli = pd.Series([1.0] + [9.0] * 20)
     yavas = pd.Series([5.0] * 21)
-    assert ind.kesisim(hizli, yavas, bakilacak_bar=5) is None
+    assert ind.kesisim(hizli, yavas, bakilacak_bar=5) == "yok"
 
 
 # --- gostergeler() bütünü ---------------------------------------------------
@@ -275,3 +283,40 @@ def test_bos_ad_otomatige_duser():
 def test_ondalikli_esik_adda_duzgun_yazilir():
     kural, _ = ind.kural_olustur("bb_yuzde_b", "<", 0.05, "AL")
     assert "0.05" in kural["ad"]
+
+
+# --- "Veri yok" ile "Nötr" ayrımı -------------------------------------------
+
+def test_kesisimsiz_varlik_notr_gorunur_veri_yok_degil():
+    """Gerileme testi: bütün göstergeleri hesaplanmış ama hiçbir kuralı
+    tetiklenmemiş bir varlık 'Nötr' olmalı. 'Veri yok' demek, kullanıcıya
+    veri çekilemediğini düşündürür ve varlığı yok sayar."""
+    olcu = ind.gostergeler(artan(260))
+    olcu["rsi"] = 60.0        # ne aşırı alım ne aşırı satım
+    olcu["bb_yuzde_b"] = 0.5  # bantların ortasında
+    ozet = ind.sinyal_ozeti(olcu)
+    assert ozet["olculemedi"] == []
+    assert ozet["puan"] == 0
+    assert ozet["etiket"] == "Nötr"
+
+
+def test_kesisimi_olmayan_gosterge_yok_degeri_tasir():
+    olcu = ind.gostergeler(artan(260))
+    assert olcu["macd_kesisim"] in ("yukari", "asagi", "yok")
+    assert olcu["ma_kesisim"] in ("yukari", "asagi", "yok")
+
+
+def test_veri_yetersizken_kesisim_none_kalir():
+    olcu = ind.gostergeler(artan(10))
+    assert olcu["macd_kesisim"] is None and olcu["ma_kesisim"] is None
+
+
+def test_yok_degeri_kesisim_kuralini_tetiklemez():
+    kural = {"ad": "t", "gosterge": "ma_kesisim", "operator": "kesisim",
+             "esik": "yukari", "yon": "AL"}
+    assert ind.kural_degerlendir(kural, {"ma_kesisim": "yok"}) is False
+
+
+def test_gercek_veri_yoklugunda_hala_veri_yok_denir():
+    """Ayrım yapılırken asıl 'veri yok' durumu kaybolmamalı."""
+    assert ind.sinyal_ozeti(ind.gostergeler([]))["etiket"] == "Veri yok"

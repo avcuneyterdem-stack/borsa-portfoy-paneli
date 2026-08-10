@@ -113,8 +113,16 @@ def bollinger(kapanislar, periyot=20, sapma=2.0):
 def kesisim(hizli_seri, yavas_seri, bakilacak_bar=5):
     """Son `bakilacak_bar` içinde kesişim olmuş mu?
 
-    Döner: "yukari" (hızlı olan yavaşı yukarı kesti — altın kesişim),
-    "asagi" (ölüm kesişimi), None (kesişim yok veya veri yetersiz).
+    Döner:
+      "yukari" — hızlı olan yavaşı yukarı kesti (altın kesişim)
+      "asagi"  — ölüm kesişimi
+      "yok"    — karşılaştırıldı, pencerede kesişim yok
+      None     — karşılaştırılamadı (veri yetersiz)
+
+    "yok" ile None'ın ayrı olması şart. İkisi de None olsaydı, bütün
+    göstergeleri hesaplanmış ama kesişimi olmayan bir varlık "veri yok"
+    görünürdü — oysa doğru cevap "nötr"dür. Kesişimin olmaması bir
+    ölçüm sonucudur, ölçümün yokluğu değil.
 
     Yalnızca son barda değil, birkaç bar geriye bakılır: kesişimi kaçırmamak
     için. Panel günde bir kez açılıyorsa tek barlık pencere kesişimlerin
@@ -133,7 +141,7 @@ def kesisim(hizli_seri, yavas_seri, bakilacak_bar=5):
             return "yukari"
         if onceki > 0 and simdiki < 0:
             return "asagi"
-    return None
+    return "yok"
 
 
 def gostergeler(kapanislar):
