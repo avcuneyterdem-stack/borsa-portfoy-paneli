@@ -38,6 +38,8 @@ python anlik_takip_ajani.py --surekli --aralik 60
 | `izleme.py` | İzleme listesi ve alarmların kalıcılığı (JSON, atomik yazım). |
 | `test_indikator.py` | Gösterge matematiğinin testleri. |
 | `test_izleme.py` | İzleme listesi ve alarm testleri. |
+| `pine/portfoy_sinyal_motoru.pine` | Kural motorunun TradingView karşılığı (bkz. `pine/README.md`). |
+| `test_pine_uyum.py` | Pine betiği ile Python motorunun aynı eşikleri kullandığını doğrular. |
 | `otomatik_takip.py` | Gün sonu portföy değerini `portfoy_gecmisi.xlsx`'e yazan bot. |
 | `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. |
 | `ajan.py` | Portföy asistanı: Claude'a salt-okunur araçlar verip serbest soru yanıtlatır. |
@@ -124,6 +126,21 @@ sembollerin geçmişini indirir. `--alarmsiz` ile kapatılabilir.
 
 Koşul sağlandığı sürece her yenilemede bildirilir; bir kez uyarıp susmaz.
 Susmak, o an ekrana bakmıyorsan uyarıyı tamamen kaybettirirdi.
+
+### TradingView (Pine) tarafı
+
+`pine/portfoy_sinyal_motoru.pine`, bu kural motorunun TradingView karşılığıdır:
+aynı göstergeler, aynı varsayılan eşikler, aynı puanlama. Kurulum ve alarm
+adımları `pine/README.md` içinde.
+
+Tek sebebi var: **panelin alarmı ancak panel açıkken çalışır.** Pine alarmı
+TradingView'in sunucusunda çalıştığı için bilgisayarın kapalıyken de bildirim
+gelir. Buna karşılık Pine portföyünü görmez — hangi varlıktan kaça aldığını
+yalnızca panel bilir.
+
+`test_pine_uyum.py` iki tarafın eşiklerini karşılaştırır; birinde değiştirip
+diğerinde unutursan test düşer. İki sistemin sessizce ayrışması, grafikte AL
+panelde nötr görmek demektir.
 
 > **Yatırım tavsiyesi değildir.** Teknik göstergeler geçmiş fiyat hareketinin
 > matematiksel özetidir; geleceği bilmezler.
