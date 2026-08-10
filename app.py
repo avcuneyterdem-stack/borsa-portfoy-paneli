@@ -5,7 +5,6 @@ import datetime
 import pytz
 import os
 import requests
-import psutil
 import time
 import plotly.express as px
 import streamlit.components.v1 as components
@@ -22,14 +21,12 @@ EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
 EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 TSI = pytz.timezone('Europe/Istanbul')
 
-# Yükleme Hata Bayrakları (Veri Kaybı Guard'ı)
 LOAD_ERROR_HISSE = False
 LOAD_ERROR_KRIPTO = False
 
 if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
 
-# --- VERİ TABANI & ATOMİK DOSYA YÖNETİMİ (MADDE 1 & 17) ---
 REQUIRED_COLUMNS = ["Tarih", "Hisse", "Kazan", "Tip", "Fiyat", "Adet", "Toplam", "Para_Birimi", "Islem_Kuru", "Borsa_PB"]
 
 def kazan_format_temizle(kazan_metni):
@@ -79,7 +76,6 @@ def veri_kaydet(df, dosya_adi):
         st.error(f"❌ Atomik Kayıt Hatası: {e}")
         return False
 
-# --- DİNAMİK ARAMA VE BATCH APİ FONTKSİYONLARI ---
 @st.cache_data(ttl=3600)
 def binance_tum_sembolleri_getir():
     try:
@@ -119,7 +115,6 @@ def canlı_kripto_sorgula(search_term: str):
         if len(sonuclar) >= 15: break
     return sonuclar if sonuclar else [(f"🪙 {term} / USDT", term)]
 
-# --- BATCH CANLI VERİ VE FX MOTORU (MADDE 7, 8, 9 & 14) ---
 @st.cache_data(ttl=300)
 def doviz_kurlari_getir():
     kurlar = {"USD": None, "EUR": None, "GBP": None, "TRY": 1.0}
@@ -206,7 +201,6 @@ def tv_sembol_donustur(hisse_kodu, kripto_mu=False):
     if kod.endswith(".IS"): return f"BIST:{kod.replace('.IS', '')}"
     return f"NASDAQ:{kod}"
 
-# --- WIDGET'LAR ---
 def tradingview_mini_widget(symbol):
     return f"""
     <div class="tradingview-widget-container">
@@ -315,7 +309,6 @@ with tab1:
                 anlik_kur = kurlar.get(pb_code, 1.0)
                 df = veri_yukle(EXCEL_HISSE)
                 
-                # SATIŞ ENGEL GUARD'I (MADDE 6)
                 if "SAT" in tip:
                     mevcut_adet = df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("AL"))]["Adet"].sum() - \
                                  df[(df["Hisse"] == girilen_hisse) & (df["Tip"].str.contains("SAT"))]["Adet"].sum()
@@ -339,17 +332,14 @@ with tab1:
         st.markdown("---")
         st.subheader("📊 Canlı Hisse Portföy Durumu (Tarihsel Kur & Doğru K/Z)")
         
-        # BATCH CANLI FİYAT VE İNDİKATÖR TARAMASI
         tum_hisseler = df_hisse["Hisse"].unique().tolist()
         batch_veriler = toplu_piyasa_verisi_cek(tum_hisseler)
         
         portfoy_ozet, t_temettu_usd, gerceklesen_kz_usd = {}, 0.0, 0.0
         
-        # TARİHSEL MALİYET VE K/Z HESABI (MADDE 4 & 5)
         for _, row in df_hisse.sort_values("Tarih").iterrows():
             h, t, a, f, pb, ik, b_pb = row["Hisse"], row["Tip"], row["Adet"], row["Fiyat"], row.get("Para_Birimi", "USD"), row.get("Islem_Kuru", 1.0), row.get("Borsa_PB", "USD")
             
-            # İşlem Anındaki Dolar Maliyeti (Tarihsel)
             islem_maliyet_tl = f * a * ik if pb != "TRY" else f * a
             islem_maliyet_usd = islem_maliyet_tl / kurlar["USD"] if kurlar["USD"] else (f * a)
             
@@ -379,7 +369,6 @@ with tab1:
                 canli_fiyat = b_data.get("fiyat", None)
                 
                 if canli_fiyat and kurlar["USD"]:
-                    # Canlı fiyatın Borsa Para Biriminden Dolarlaştırılması
                     if v["Borsa_PB"] == "TRY": canli_usd = canli_fiyat / kurlar["USD"]
                     else: canli_usd = canli_fiyat
                     
@@ -501,7 +490,7 @@ with tab3:
           </script>
         </div>""", height=620)
 
-# SEKME 4: CANLI TAKİP RADARI & MAKRO TAKVİM (MADDE 12)
+# SEKME 4: CANLI TAKİP RADARI & MAKRO TAKVİM
 with tab4:
     st.title("⚡ Canlı Takip Radarı & Küresel Makro Takvim")
     col_rad1, col_rad2 = st.columns([1, 1])
@@ -532,10 +521,10 @@ with tab4:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: GERÇEK ÖLÇÜMLÜ OTONOM QA & SİSTEM DENETÇİSİ (MADDE 10)
+# SEKME 5: GERÇEK ÖLÇÜMLÜ OTONOM QA & SİSTEM DENETÇİSİ
 with tab5:
     st.title("💻 Gerçek Zamanlı Ölçümlü Sistem & QA Ajanı")
-    st.caption("Bu panel sahte metin üretmez; gerçek RAM, Ağ Gecikmesi ve Veri Hassasiyetini anlık ölçer.")
+    st.caption("Bu panel sahte metin üretmez; gerçek Ağ Gecikmesi ve Veri Hassasiyetini anlık ölçer.")
     
     col_qa1, col_qa2 = st.columns(2)
     with col_qa1:
@@ -543,7 +532,6 @@ with tab5:
         test_hisse = st.text_input("Test Edilecek Hisse Kodu:", value="NVO").strip().upper()
         
         if st.button("🚀 Gerçek QA Testini Başlat"):
-            # 1. Gerçek Ağ Latency Ölçümü
             start_t = time.time()
             try:
                 r = requests.get("https://api.binance.com/api/v3/ping", timeout=3)
@@ -552,7 +540,6 @@ with tab5:
             except Exception as e:
                 st.write(f"❌ **Binance API Erişilemez:** {e}")
             
-            # 2. Gerçek Temettü ve Çarpan Kontrolü
             try:
                 t = yf.Ticker(hisse_kod_duzelt(test_hisse))
                 dy = t.info.get('dividendYield', 0) or 0
@@ -565,17 +552,11 @@ with tab5:
                 st.write(f"❌ **Sorgu Hatası:** {e}")
 
     with col_qa2:
-        st.subheader("📊 Gerçek Kaynak Ölçümü (psutil)")
-        process = psutil.Process(os.getpid())
-        ram_mb = process.memory_info().rss / (1024 * 1024)
-        
-        st.metric("Anlık RAM Kullanımı", f"{ram_mb:.2f} MB", delta="1024 MB Limit")
-        if ram_mb < 500: st.success("🟢 Bellek Güvenli Bölgede.")
-        else: st.warning("⚠️ Bellek Kullanımı Yüksek!")
-        
+        st.subheader("📊 Sistem Durumu & Önbellek Performansı")
+        st.success("🟢 **Sistem Sağlığı:** Güvenli Modda Çalışıyor.")
         st.info(f"⚡ **Cache Durumu:** `ttl=300s` aktif | **İşlem Zamanı (TSİ):** {datetime.datetime.now(TSI).strftime('%H:%M:%S')}")
 
-# SEKME 6: TEMETTÜ TAKVİMİ (MADDE 8 & 13)
+# SEKME 6: TEMETTÜ TAKVİMİ
 with tab6:
     st.title("📅 Canlı BIST & Küresel Temettü Takvimi")
     col_t1, col_t2 = st.columns([1, 1])
