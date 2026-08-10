@@ -218,3 +218,60 @@ def test_kullanici_kurallari_varsayilanin_yerine_gecer():
     kendi = [{"ad": "kendi", "gosterge": "rsi", "operator": ">", "esik": 10, "yon": "AL"}]
     ozet = ind.sinyal_ozeti({"rsi": 50}, kurallar=kendi)
     assert ozet["al"] == ["kendi"] and ozet["sat"] == []
+
+
+# --- Gösterge kataloğu ve kural kurucu --------------------------------------
+
+def test_katalogdaki_her_gosterge_gostergeler_ciktisinda_var():
+    """Katalogda olup ölçülemeyen bir alan, kurulabilir ama hiç tetiklenmeyen
+    kural demektir — sessiz ölü kural."""
+    olcu = ind.gostergeler(artan(260))
+    for alan in ind.GOSTERGE_KATALOGU:
+        assert alan in olcu, f"{alan} gostergeler() çıktısında yok"
+
+
+def test_kesisim_gostergesi_buyuktur_ile_reddedilir():
+    kural, sorun = ind.kural_olustur("ma_kesisim", ">", 1, "AL")
+    assert kural is None and "kesişim" in sorun.lower()
+
+
+def test_mantiksal_gostergede_esitlik_kabul_edilir():
+    kural, sorun = ind.kural_olustur("fiyat_sma200_uzerinde", "==", True, "AL")
+    assert sorun is None
+    assert ind.kural_degerlendir(kural, {"fiyat_sma200_uzerinde": True}) is True
+    assert ind.kural_degerlendir(kural, {"fiyat_sma200_uzerinde": False}) is False
+
+
+def test_mantiksal_gostergede_buyuktur_reddedilir():
+    kural, sorun = ind.kural_olustur("fiyat_sma200_uzerinde", ">", 0.5, "AL")
+    assert kural is None and sorun is not None
+
+
+def test_sayisal_gostergede_kesisim_reddedilir():
+    kural, sorun = ind.kural_olustur("rsi", "kesisim", "yukari", "AL")
+    assert kural is None and sorun is not None
+
+
+def test_kural_adi_otomatik_uretilir():
+    kural, sorun = ind.kural_olustur("rsi", "<", 40, "AL")
+    assert sorun is None and kural["ad"] == "RSI(14) < 40 → AL"
+
+
+def test_kesisim_kuralinin_adi_okunur():
+    kural, _ = ind.kural_olustur("ma_kesisim", "kesisim", "yukari", "AL")
+    assert "yukarı" in kural["ad"] and "AL" in kural["ad"]
+
+
+def test_kendi_adini_verebilirsin():
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL", ad="Benim kuralım")
+    assert kural["ad"] == "Benim kuralım"
+
+
+def test_bos_ad_otomatige_duser():
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL", ad="   ")
+    assert kural["ad"] == "RSI(14) < 40 → AL"
+
+
+def test_ondalikli_esik_adda_duzgun_yazilir():
+    kural, _ = ind.kural_olustur("bb_yuzde_b", "<", 0.05, "AL")
+    assert "0.05" in kural["ad"]

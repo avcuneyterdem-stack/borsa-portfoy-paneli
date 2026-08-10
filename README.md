@@ -77,6 +77,27 @@ tavsiye değil, kendi kurallarının sayımıdır — bilinçli olarak böyle sa
 tutuldu, çünkü ağırlıklı bir skor "sistem biliyor" hissi verir ama dayanağı
 olmaz.
 
+### Kendi kuralların
+
+Sekmedeki **Kendi kuralların** bölümünden kendi eşiklerini tanımlayabilirsin:
+bir gösterge, bir karşılaştırma, bir eşik ve bir yön. Kural adı otomatik
+türetilir (`RSI(14) < 40 → AL`), hem sinyal tablosunda hem alarm menüsünde
+belirir ve `kurallar.json` içinde saklanır.
+
+Arayüz göstergenin türüne uyar: kesişim göstergesine yön (`▲ yukarı` /
+`▼ aşağı`), mantıksal göstergeye doğru/yanlış, sayısal göstergeye eşik sorar.
+Anlamsız birleşimler kurulamaz — `SMA50/SMA200 kesişimi > 1` gibi bir kural
+motor tarafından reddedilir, çünkü kesişim bir sayı değildir.
+
+Varsayılan 8 kural koda gömülüdür ve silinemez, ama bir onay kutusuyla toptan
+kapatılabilir; o zaman yalnızca kendi kuralların değerlendirilir.
+
+| Gösterge | Tür | Kurulabilecek kural |
+|---|---|---|
+| RSI(14), Fiyat, SMA50, SMA200, MACD çizgisi, MACD histogramı, Bollinger %B | sayı | `< eşik` veya `> eşik` |
+| MACD kesişimi, SMA50/SMA200 kesişimi | kesişim | `▲ yukarı` veya `▼ aşağı` |
+| Fiyat SMA200 üzerinde | doğru/yanlış | `= doğru` veya `= yanlış` |
+
 ### İzleme listesi
 
 Elinde olmayan ama takip ettiğin semboller `izleme_listesi.json` içinde

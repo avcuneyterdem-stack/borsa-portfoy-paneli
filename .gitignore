@@ -5,6 +5,7 @@ __pycache__/
 # Kişisel tercih dosyaları — kod değil, kullanıcı verisi
 izleme_listesi.json
 alarmlar.json
+kurallar.json
 *.json.tmp
 
 # Derleme/kurulum dosyaları ve kısayollar depoya girmemeli

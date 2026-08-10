@@ -210,6 +210,36 @@ def rsi_durum(rsi):
 OPERATORLER = ("<", ">", "==", "kesisim")
 YONLER = ("AL", "SAT")
 
+# Kural kurarken kullanıcıya sunulan göstergeler. Tür, hangi operatörlerin
+# anlamlı olduğunu belirler: kesişim serisiyle "<" karşılaştırması yapılamaz.
+GOSTERGE_KATALOGU = {
+    "rsi": {"etiket": "RSI(14)", "tur": "sayi"},
+    "fiyat": {"etiket": "Fiyat", "tur": "sayi"},
+    "sma50": {"etiket": "SMA50", "tur": "sayi"},
+    "sma200": {"etiket": "SMA200", "tur": "sayi"},
+    "macd": {"etiket": "MACD çizgisi", "tur": "sayi"},
+    "macd_histogram": {"etiket": "MACD histogramı", "tur": "sayi"},
+    "bb_yuzde_b": {"etiket": "Bollinger %B", "tur": "sayi"},
+    "macd_kesisim": {"etiket": "MACD kesişimi", "tur": "kesisim"},
+    "ma_kesisim": {"etiket": "SMA50/SMA200 kesişimi", "tur": "kesisim"},
+    "fiyat_sma200_uzerinde": {"etiket": "Fiyat SMA200 üzerinde", "tur": "mantiksal"},
+}
+
+KESISIM_ESIKLERI = {"yukari": "▲ yukarı kesti", "asagi": "▼ aşağı kesti"}
+
+
+def gosterge_turu(gosterge):
+    """Göstergenin türü: 'sayi', 'kesisim', 'mantiksal' veya None."""
+    kayit = GOSTERGE_KATALOGU.get(gosterge)
+    return kayit["tur"] if kayit else None
+
+
+def gosterge_etiketi(gosterge):
+    """İnsan okunur ad; katalogda yoksa alan adının kendisi."""
+    kayit = GOSTERGE_KATALOGU.get(gosterge)
+    return kayit["etiket"] if kayit else str(gosterge)
+
+
 VARSAYILAN_KURALLAR = [
     {"ad": "RSI aşırı satım (<30)", "gosterge": "rsi", "operator": "<", "esik": 30, "yon": "AL"},
     {"ad": "RSI aşırı alım (>70)", "gosterge": "rsi", "operator": ">", "esik": 70, "yon": "SAT"},
@@ -239,12 +269,50 @@ def kural_gecerli_mi(kural):
         return f"Bilinmeyen operatör: {kural['operator']}"
     if kural["yon"] not in YONLER:
         return f"Yön 'AL' veya 'SAT' olmalı, '{kural['yon']}' değil."
-    if kural["operator"] == "kesisim":
-        if kural["esik"] not in ("yukari", "asagi"):
+    tur = gosterge_turu(kural["gosterge"])
+    operator, esik = kural["operator"], kural["esik"]
+
+    if operator == "kesisim":
+        if esik not in ("yukari", "asagi"):
             return "Kesişim eşiği 'yukari' veya 'asagi' olmalı."
-    elif not isinstance(kural["esik"], (int, float)) or isinstance(kural["esik"], bool):
-        return "Eşik sayı olmalı."
+        if tur is not None and tur != "kesisim":
+            return f"{gosterge_etiketi(kural['gosterge'])} bir kesişim göstergesi değil."
+    elif operator == "==":
+        # "==" hem sayısal hem mantıksal göstergelerde anlamlıdır.
+        if not isinstance(esik, (int, float, bool)):
+            return "Eşik sayı veya doğru/yanlış olmalı."
+    else:  # "<" veya ">"
+        if isinstance(esik, bool) or not isinstance(esik, (int, float)):
+            return "Eşik sayı olmalı."
+        if tur == "kesisim":
+            return (f"{gosterge_etiketi(kural['gosterge'])} kesişim göstergesidir; "
+                    "büyüktür/küçüktür ile karşılaştırılamaz.")
+        if tur == "mantiksal":
+            return (f"{gosterge_etiketi(kural['gosterge'])} doğru/yanlış bir göstergedir; "
+                    "eşitlik ile karşılaştırılmalı.")
     return None
+
+
+def kural_adi_uret(gosterge, operator, esik, yon):
+    """Kuraldan okunur bir ad türetir: 'RSI(14) < 40 → AL'."""
+    etiket = gosterge_etiketi(gosterge)
+    if operator == "kesisim":
+        kosul = f"{etiket} {KESISIM_ESIKLERI.get(esik, esik)}"
+    elif isinstance(esik, bool):
+        kosul = f"{etiket} = {'doğru' if esik else 'yanlış'}"
+    else:
+        kosul = f"{etiket} {operator} {esik:g}"
+    return f"{kosul} → {yon}"
+
+
+def kural_olustur(gosterge, operator, esik, yon, ad=None):
+    """Parçalardan kural sözlüğü kurar. Geçersizse (None, hata mesajı) döner."""
+    kural = {
+        "ad": (ad or "").strip() or kural_adi_uret(gosterge, operator, esik, yon),
+        "gosterge": gosterge, "operator": operator, "esik": esik, "yon": yon,
+    }
+    sorun = kural_gecerli_mi(kural)
+    return (None, sorun) if sorun else (kural, None)
 
 
 def kural_degerlendir(kural, olculer):

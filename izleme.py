@@ -180,3 +180,92 @@ def alarmlari_degerlendir(paket, dosya=ALARM_DOSYA, simdi=None):
     if degisti:
         _yaz(dosya, alarmlar)
     return tetiklenen
+
+
+# --- Kendi kuralların -------------------------------------------------------
+# Sinyal tablosu ve alarmlar bu listeyi kullanır. Varsayılan kurallar koda
+# gömülüdür ve silinemez; ama `varsayilanlari_kullan` ile toptan kapatılabilir,
+# böylece yalnızca kendi kurallarınla çalışabilirsin.
+
+KURAL_DOSYA = "kurallar.json"
+
+
+def _bos_kural_ayari():
+    """Her çağrıda yeni sözlük + yeni liste.
+
+    Modül düzeyinde sabit bir sözlük tutup `dict(...)` ile kopyalamak sığ
+    kopya üretir: içindeki liste paylaşılır ve `kural_ekle` sabiti kalıcı
+    olarak kirletir. Fabrika fonksiyonu bu tuzağı tamamen kapatır.
+    """
+    return {"varsayilanlari_kullan": True, "kurallar": []}
+
+
+def kural_ayarlari_oku(dosya=KURAL_DOSYA):
+    """{"varsayilanlari_kullan": bool, "kurallar": [...]} döndürür.
+
+    Geçersiz kurallar sessizce elenmez, uyarı yazılır: kullanıcı kuralını
+    tanımladığını sanıp sinyal beklerken hiç değerlendirilmemesi kötü olur.
+    """
+    ham = _oku(dosya, _bos_kural_ayari())
+    if not isinstance(ham, dict):
+        return _bos_kural_ayari()
+
+    kurallar = []
+    for kural in ham.get("kurallar", []) or []:
+        sorun = ind.kural_gecerli_mi(kural)
+        if sorun is None:
+            kurallar.append(kural)
+        else:
+            kayitci.warning("Geçersiz kural atlandı (%s): %s",
+                            (kural or {}).get("ad", "?") if isinstance(kural, dict) else "?", sorun)
+    return {
+        "varsayilanlari_kullan": bool(ham.get("varsayilanlari_kullan", True)),
+        "kurallar": kurallar,
+    }
+
+
+def kural_oku(dosya=KURAL_DOSYA):
+    """Yalnızca kullanıcının kendi tanımladığı kurallar."""
+    return kural_ayarlari_oku(dosya)["kurallar"]
+
+
+def kural_ekle(kural, dosya=KURAL_DOSYA):
+    """Kural ekler. Hata mesajı veya None döner."""
+    sorun = ind.kural_gecerli_mi(kural)
+    if sorun is not None:
+        return sorun
+
+    ayarlar = kural_ayarlari_oku(dosya)
+    mevcut_adlar = {k["ad"] for k in ayarlar["kurallar"]}
+    mevcut_adlar |= {k["ad"] for k in ind.VARSAYILAN_KURALLAR}
+    if kural["ad"] in mevcut_adlar:
+        return f"'{kural['ad']}' adında bir kural zaten var."
+
+    ayarlar["kurallar"].append(kural)
+    _yaz(dosya, ayarlar)
+    return None
+
+
+def kural_sil(ad, dosya=KURAL_DOSYA):
+    """Kendi kuralını siler. Varsayılan kurallar silinemez."""
+    ayarlar = kural_ayarlari_oku(dosya)
+    ayarlar["kurallar"] = [k for k in ayarlar["kurallar"] if k["ad"] != ad]
+    _yaz(dosya, ayarlar)
+
+
+def varsayilan_kullanimi_degistir(kullan, dosya=KURAL_DOSYA):
+    """Varsayılan kural setini toptan açar/kapatır."""
+    ayarlar = kural_ayarlari_oku(dosya)
+    ayarlar["varsayilanlari_kullan"] = bool(kullan)
+    _yaz(dosya, ayarlar)
+
+
+def etkin_kurallar(dosya=KURAL_DOSYA):
+    """Sinyal tablosunun ve alarm menüsünün kullandığı kural listesi.
+
+    Hepsi kapatılmışsa boş liste döner; çağıran taraf bunu "kural yok" diye
+    göstermelidir, "hiçbir sinyal yok" diye değil.
+    """
+    ayarlar = kural_ayarlari_oku(dosya)
+    temel = list(ind.VARSAYILAN_KURALLAR) if ayarlar["varsayilanlari_kullan"] else []
+    return temel + ayarlar["kurallar"]

@@ -159,3 +159,83 @@ def test_varsayilan_kurallarin_hepsi_alarm_olabilir(calisma_dizini):
     for kural in ind.VARSAYILAN_KURALLAR:
         assert izleme.alarm_ekle("TEST", kural) is None
     assert len(izleme.alarm_oku()) == len(ind.VARSAYILAN_KURALLAR)
+
+
+# --- Kendi kuralların -------------------------------------------------------
+
+def test_kural_dosyasi_yokken_varsayilanlar_etkin(calisma_dizini):
+    assert izleme.kural_oku() == []
+    assert izleme.etkin_kurallar() == list(ind.VARSAYILAN_KURALLAR)
+
+
+def test_kendi_kuralin_eklenir_ve_etkin_olur(calisma_dizini):
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL")
+    assert izleme.kural_ekle(kural) is None
+    assert izleme.kural_oku() == [kural]
+    assert kural in izleme.etkin_kurallar()
+    assert len(izleme.etkin_kurallar()) == len(ind.VARSAYILAN_KURALLAR) + 1
+
+
+def test_ayni_adli_kural_iki_kez_eklenmez(calisma_dizini):
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL")
+    izleme.kural_ekle(kural)
+    assert "zaten var" in izleme.kural_ekle(kural)
+    assert len(izleme.kural_oku()) == 1
+
+
+def test_varsayilan_kural_adiyla_cakisma_engellenir(calisma_dizini):
+    taklit = dict(ind.VARSAYILAN_KURALLAR[0])
+    assert izleme.kural_ekle(taklit) is not None
+
+
+def test_gecersiz_kural_kaydedilmez(calisma_dizini):
+    assert izleme.kural_ekle({"ad": "x", "gosterge": "rsi"}) is not None
+    assert izleme.kural_oku() == []
+
+
+def test_kural_silinir(calisma_dizini):
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL")
+    izleme.kural_ekle(kural)
+    izleme.kural_sil(kural["ad"])
+    assert izleme.kural_oku() == []
+
+
+def test_varsayilanlar_kapatilabilir(calisma_dizini):
+    kural, _ = ind.kural_olustur("rsi", "<", 40, "AL")
+    izleme.kural_ekle(kural)
+    izleme.varsayilan_kullanimi_degistir(False)
+    assert izleme.etkin_kurallar() == [kural]
+
+
+def test_hepsi_kapaliysa_kural_listesi_bos(calisma_dizini):
+    izleme.varsayilan_kullanimi_degistir(False)
+    assert izleme.etkin_kurallar() == []
+
+
+def test_bozuk_kural_dosyasi_cokertmez(calisma_dizini):
+    (calisma_dizini / izleme.KURAL_DOSYA).write_text("{bozuk", encoding="utf-8")
+    assert izleme.etkin_kurallar() == list(ind.VARSAYILAN_KURALLAR)
+
+
+def test_diskteki_gecersiz_kendi_kuralin_okumada_atlanir(calisma_dizini):
+    (calisma_dizini / izleme.KURAL_DOSYA).write_text(
+        json.dumps({"varsayilanlari_kullan": False,
+                    "kurallar": [{"ad": "bozuk", "gosterge": "rsi"}]}),
+        encoding="utf-8")
+    assert izleme.etkin_kurallar() == []
+
+
+def test_kural_ekleme_modul_sabitini_kirletmez(calisma_dizini):
+    """Sığ kopya hatası: ilk ekleme varsayılan listeye sızarsa, sonraki
+    çalışmalarda hiç tanımlanmamış kurallar ortaya çıkar."""
+    onceki = len(ind.VARSAYILAN_KURALLAR)
+    kural, _ = ind.kural_olustur("rsi", "<", 41, "AL")
+    izleme.kural_ekle(kural)
+    assert len(ind.VARSAYILAN_KURALLAR) == onceki
+    assert all(k["ad"] != kural["ad"] for k in ind.VARSAYILAN_KURALLAR)
+
+
+def test_kendi_kuralin_alarm_olarak_kurulabilir(calisma_dizini):
+    kural, _ = ind.kural_olustur("rsi", "<", 45, "AL")
+    assert izleme.alarm_ekle("AAPL", kural) is None
+    assert izleme.alarmlari_degerlendir({"AAPL": {"rsi": 40}})[0]["kural_adi"] == kural["ad"]

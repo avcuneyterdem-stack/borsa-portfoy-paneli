@@ -953,6 +953,15 @@ with sekme7:
 
     izleme_listesi = izleme.liste_oku()
     izleme_hisse, izleme_kripto = izleme.turlere_ayir(izleme_listesi)
+    kural_ayarlari = izleme.kural_ayarlari_oku()
+    etkin_kurallar = izleme.etkin_kurallar()
+
+    if not etkin_kurallar:
+        st.warning(
+            "Hiç etkin kural yok — sinyal sütunu boş kalacak. Aşağıdaki "
+            "**Kendi kuralların** bölümünden kural ekleyin ya da varsayılan "
+            "kural setini yeniden açın."
+        )
 
     kapsam = st.multiselect(
         "Kapsam", ["Portföyüm", "İzleme listem"], default=["Portföyüm", "İzleme listem"],
@@ -999,7 +1008,7 @@ with sekme7:
         satirlar = []
         for sembol in sorted(paket):
             olcu = paket[sembol]
-            ozet = ind.sinyal_ozeti(olcu)
+            ozet = ind.sinyal_ozeti(olcu, etkin_kurallar)
             satirlar.append({
                 "Varlık": sembol,
                 "Fiyat": _sayi(olcu["fiyat"]),
@@ -1017,15 +1026,16 @@ with sekme7:
         st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
 
         st.caption(
-            "**Puan** = tetiklenen AL kuralı sayısı − tetiklenen SAT kuralı sayısı. "
-            "Kuralların ağırlığı yoktur ve hiçbiri diğerinden değerli sayılmaz; "
-            "bu bir tavsiye değil, sizin tanımladığınız kuralların sayımıdır."
+            f"**Puan** = tetiklenen AL kuralı sayısı − tetiklenen SAT kuralı sayısı "
+            f"({len(etkin_kurallar)} etkin kural üzerinden). Kuralların ağırlığı "
+            "yoktur ve hiçbiri diğerinden değerli sayılmaz; bu bir tavsiye değil, "
+            "sizin tanımladığınız kuralların sayımıdır."
         )
 
         with st.expander("🔍 Varlık detayı — hangi kurallar tetiklendi?"):
             secim = st.selectbox("Varlık", sorted(paket), key="ind_detay")
             olcu = paket[secim]
-            ozet = ind.sinyal_ozeti(olcu)
+            ozet = ind.sinyal_ozeti(olcu, etkin_kurallar)
             sutun = st.columns(3)
             sutun[0].metric("RSI(14)", _sayi(olcu["rsi"], 1), ind.rsi_durum(olcu["rsi"]))
             sutun[1].metric("Fiyat", _sayi(olcu["fiyat"]))
@@ -1060,7 +1070,7 @@ with sekme7:
                 st.error(f"{hedef} için geçmiş veri çekilemedi. Sembol yanlış olabilir.")
             else:
                 olcu = tekil[hedef]
-                ozet = ind.sinyal_ozeti(olcu)
+                ozet = ind.sinyal_ozeti(olcu, etkin_kurallar)
                 st.markdown(f"**{hedef}** — {SINYAL_RENK.get(ozet['etiket'], '')} {ozet['etiket']}")
                 st.dataframe(pd.DataFrame([{
                     "Fiyat": _sayi(olcu["fiyat"]), "RSI(14)": _sayi(olcu["rsi"], 1),
@@ -1107,10 +1117,14 @@ with sekme7:
         else:
             alarm_sutun = st.columns([1, 2, 1])
             alarm_sembol = alarm_sutun[0].selectbox("Varlık", tum_semboller, key="alarm_sembol")
-            kural_adlari = [k["ad"] for k in ind.VARSAYILAN_KURALLAR]
-            alarm_kural_adi = alarm_sutun[1].selectbox("Koşul", kural_adlari, key="alarm_kural")
-            if alarm_sutun[2].button("➕ Alarm kur", key="alarm_ekle"):
-                kural = next(k for k in ind.VARSAYILAN_KURALLAR if k["ad"] == alarm_kural_adi)
+            kural_adlari = [k["ad"] for k in etkin_kurallar]
+            if not kural_adlari:
+                alarm_sutun[1].info("Önce kural tanımlayın.")
+                alarm_kural_adi = None
+            else:
+                alarm_kural_adi = alarm_sutun[1].selectbox("Koşul", kural_adlari, key="alarm_kural")
+            if alarm_kural_adi and alarm_sutun[2].button("➕ Alarm kur", key="alarm_ekle"):
+                kural = next(k for k in etkin_kurallar if k["ad"] == alarm_kural_adi)
                 sorun = izleme.alarm_ekle(alarm_sembol, kural)
                 if sorun:
                     st.error(sorun)
@@ -1132,6 +1146,90 @@ with sekme7:
                 if satir[4].button("🗑️", key=f"alarm_sil_{alarm['id']}"):
                     izleme.alarm_sil(alarm["id"])
                     st.rerun()
+
+    # --- Kendi kuralların ---------------------------------------------------
+    kendi_kurallar = kural_ayarlari["kurallar"]
+    with st.expander(f"🧮 Kendi kuralların ({len(kendi_kurallar)} tanımlı)"):
+        st.caption(
+            "Bir gösterge, bir karşılaştırma ve bir eşik seç; kural hem sinyal "
+            "tablosunda hem alarm menüsünde belirir."
+        )
+
+        varsayilan_acik = st.checkbox(
+            "Varsayılan 8 kuralı da uygula",
+            value=kural_ayarlari["varsayilanlari_kullan"],
+            key="kural_varsayilan",
+            help="Kapatırsan yalnızca kendi kuralların değerlendirilir.",
+        )
+        if varsayilan_acik != kural_ayarlari["varsayilanlari_kullan"]:
+            izleme.varsayilan_kullanimi_degistir(varsayilan_acik)
+            st.rerun()
+
+        st.markdown("**Yeni kural**")
+        gosterge_secenekleri = list(ind.GOSTERGE_KATALOGU)
+        kural_sutun = st.columns([2, 1, 1, 1])
+        secili_gosterge = kural_sutun[0].selectbox(
+            "Gösterge", gosterge_secenekleri, key="kural_gosterge",
+            format_func=ind.gosterge_etiketi,
+        )
+        tur = ind.gosterge_turu(secili_gosterge)
+
+        # Operatör ve eşik, göstergenin türüne göre değişir: kesişim
+        # göstergesiyle "küçüktür" karşılaştırması anlamsızdır.
+        if tur == "kesisim":
+            secili_operator = "kesisim"
+            kural_sutun[1].markdown("&nbsp;\n\nkesişim yönü")
+            secili_esik = kural_sutun[2].selectbox(
+                "Yön", ["yukari", "asagi"], key="kural_esik_kesisim",
+                format_func=lambda y: ind.KESISIM_ESIKLERI[y],
+            )
+        elif tur == "mantiksal":
+            secili_operator = "=="
+            kural_sutun[1].markdown("&nbsp;\n\neşittir")
+            secili_esik = kural_sutun[2].selectbox(
+                "Değer", [True, False], key="kural_esik_mantik",
+                format_func=lambda d: "doğru" if d else "yanlış",
+            )
+        else:
+            secili_operator = kural_sutun[1].selectbox(
+                "Karşılaştırma", ["<", ">"], key="kural_operator")
+            secili_esik = kural_sutun[2].number_input(
+                "Eşik", value=30.0, step=1.0, format="%.4f", key="kural_esik_sayi")
+
+        secili_yon = kural_sutun[3].selectbox("Yön", ind.YONLER, key="kural_yon")
+
+        onizleme = ind.kural_adi_uret(secili_gosterge, secili_operator, secili_esik, secili_yon)
+        st.caption(f"Kural adı: **{onizleme}**")
+
+        if st.button("➕ Kuralı ekle", key="kural_ekle_dugme"):
+            kural, sorun = ind.kural_olustur(
+                secili_gosterge, secili_operator, secili_esik, secili_yon)
+            if sorun:
+                st.error(sorun)
+            else:
+                kayit_sorunu = izleme.kural_ekle(kural)
+                if kayit_sorunu:
+                    st.error(kayit_sorunu)
+                else:
+                    st.success(f"Eklendi: {kural['ad']}")
+                    st.rerun()
+
+        if kendi_kurallar:
+            st.markdown("**Tanımlı kuralların**")
+            for kural in kendi_kurallar:
+                satir = st.columns([5, 1])
+                simge = "🟢" if kural["yon"] == "AL" else "🔴"
+                satir[0].write(f"{simge} {kural['ad']}")
+                if satir[1].button("🗑️", key=f"kural_sil_{kural['ad']}"):
+                    izleme.kural_sil(kural["ad"])
+                    st.rerun()
+        else:
+            st.info("Henüz kendi kuralın yok; yukarıdan ekleyebilirsin.")
+
+        with st.popover("📖 Varsayılan kurallar"):
+            for kural in ind.VARSAYILAN_KURALLAR:
+                simge = "🟢" if kural["yon"] == "AL" else "🔴"
+                st.write(f"{simge} {kural['ad']}")
 
     st.info(
         "⚠️ **Yatırım tavsiyesi değildir.** Teknik göstergeler geçmiş fiyat "
