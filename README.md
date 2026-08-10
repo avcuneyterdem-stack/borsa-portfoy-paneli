@@ -41,6 +41,7 @@ python anlik_takip_ajani.py --surekli --aralik 60
 | `pine/portfoy_sinyal_motoru.pine` | Kural motorunun TradingView karşılığı (bkz. `pine/README.md`). |
 | `test_pine_uyum.py` | Pine betiği ile Python motorunun aynı eşikleri kullandığını doğrular. |
 | `otomatik_takip.py` | Gün sonu portföy değerini `portfoy_gecmisi.xlsx`'e yazan bot. |
+| `kur_gunluk_gorev.ps1` | Bu botu Windows Görev Zamanlayıcı'ya kuran betik. |
 | `anlik_takip_ajani.py` | Terminal tabanlı anlık takip betiği. |
 | `ajan.py` | Portföy asistanı: Claude'a salt-okunur araçlar verip serbest soru yanıtlatır. |
 | `test_otomatik_takip.py` | Botun testleri (ağ erişimi olmadan). |
@@ -280,6 +281,33 @@ Soru sormadığınız sürece panel hiçbir veriyi dışarı göndermez.
 **Güvenlik sınırı.** Asistanın bütün araçları salt-okunurdur: defteri okur,
 yazamaz. İşlem giremez, kayıt silemez, düzeltemez. Bu bir tasarım kararıdır ve
 `test_ajan.py` içindeki bir testle korunur.
+
+## Günlük kaydı otomatikleştirme (Windows)
+
+`otomatik_takip.py` portföyünün o günkü değerini `portfoy_gecmisi.xlsx`
+dosyasına yazar. Elle çalıştırmayı unutmamak için Görev Zamanlayıcı'ya kur:
+
+```powershell
+.\kur_gunluk_gorev.ps1              # her gün 23:30
+.\kur_gunluk_gorev.ps1 -Saat 18:00  # başka saat
+.\kur_gunluk_gorev.ps1 -Dene        # kurmadan bir kez şimdi çalıştır
+.\kur_gunluk_gorev.ps1 -Kaldir      # görevi sil
+```
+
+Yönetici hakkı gerekmez; görev yalnızca senin kullanıcı hesabına tanımlanır.
+
+**Bilgisayar o saatte kapalıysa ne olur?** `StartWhenAvailable` ayarı sayesinde
+makine açıldığında kaçırılan çalıştırma telafi edilir. Bu ayar olmadan kapalı
+geçen her gün geçmişte boşluk bırakırdı — ev bilgisayarında bu istisna değil,
+kural olurdu.
+
+Görev penceresiz çalışır; çıktı `otomatik_takip.log` dosyasına yazılır. Bir
+şey ters giderse geriye bakılacak tek yer orasıdır.
+
+```powershell
+Get-ScheduledTask -TaskName BorsaPortfoy-GunSonuKaydi   # kurulu mu
+Start-ScheduledTask -TaskName BorsaPortfoy-GunSonuKaydi # hemen çalıştır
+```
 
 ## Yardımcı betikler
 

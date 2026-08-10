@@ -4,6 +4,8 @@ Botun en önemli davranışı, eksik veriyle rakam uydurmamasıdır: eski sürü
 kur çekilemediğinde sabit 34.0 varsayıp yanlış bir geçmiş yazıyordu.
 """
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -102,3 +104,41 @@ def test_bozuk_defter_gecmisi_bozmaz(calisma_dizini, monkeypatch):
 def test_bos_defterde_kayit_yapilmaz(calisma_dizini):
     assert ot.gun_sonu_kaydet() == 2
     assert not (calisma_dizini / ot.EXCEL_GECMIS).exists()
+
+
+# --- Dosya günlüğü (Görev Zamanlayıcı için) ---------------------------------
+
+def test_log_dosyasi_olusturulur_ve_yazilir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    kok = logging.getLogger()
+    onceki = list(kok.handlers)
+    try:
+        ot.dosya_gunlugu_ekle("takip.log")
+        logging.getLogger("otomatik_takip").error("deneme satırı")
+        for tutamak in kok.handlers:
+            tutamak.flush()
+        icerik = (tmp_path / "takip.log").read_text(encoding="utf-8")
+        assert "deneme satırı" in icerik
+    finally:
+        for tutamak in list(kok.handlers):
+            if tutamak not in onceki:
+                tutamak.close()
+                kok.removeHandler(tutamak)
+
+
+def test_ayni_log_iki_kez_eklenmez(tmp_path, monkeypatch):
+    """İki tutamak, her satırın dosyaya iki kez yazılması demektir."""
+    monkeypatch.chdir(tmp_path)
+    kok = logging.getLogger()
+    onceki = list(kok.handlers)
+    try:
+        ilk = ot.dosya_gunlugu_ekle("takip.log")
+        ikinci = ot.dosya_gunlugu_ekle("takip.log")
+        assert ilk is ikinci
+        eklenen = [h for h in kok.handlers if h not in onceki]
+        assert len(eklenen) == 1
+    finally:
+        for tutamak in list(kok.handlers):
+            if tutamak not in onceki:
+                tutamak.close()
+                kok.removeHandler(tutamak)

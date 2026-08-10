@@ -6,8 +6,14 @@ günlük bir satır olarak yazar. Tüm para hesapları portfoy_core üzerinden
 yapılır; bu betiğin kendi kur matematiği yoktur.
 
 Kullanım:
-    python otomatik_takip.py              # bir kez çalışır ve çıkar
-    python otomatik_takip.py --surekli    # her gün 23:30'da tekrarlar (yerel)
+    python otomatik_takip.py                    # bir kez çalışır ve çıkar
+    python otomatik_takip.py --surekli          # her gün 23:30'da tekrarlar
+    python otomatik_takip.py --log takip.log    # çıktıyı dosyaya da yazar
+
+Windows'ta her gün kendiliğinden çalışması için `kur_gunluk_gorev.ps1`
+betiğini kullan; Görev Zamanlayıcı'ya kaydeder. `--surekli` modu bilgisayarın
+sürekli açık kalmasını gerektirdiği için ev bilgisayarında iyi bir çözüm
+değildir.
 
 Çıkış kodları: 0 kaydedildi · 1 kaydedilemedi · 2 defter bulunamadı
 """
@@ -34,6 +40,26 @@ EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
 EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 EXCEL_GECMIS = "portfoy_gecmisi.xlsx"
 TSI = ZoneInfo("Europe/Istanbul")
+
+def dosya_gunlugu_ekle(dosya):
+    """Kök günlükçüye bir dosya tutamağı ekler ve onu döndürür.
+
+    Görev Zamanlayıcı ile çalışırken ekran yoktur; hata olduğunda geriye
+    bakılacak tek şey bu dosyadır. Aynı dosya için ikinci kez çağrılırsa
+    yeni tutamak eklenmez, yoksa her satır iki kez yazılır.
+    """
+    tam_yol = os.path.abspath(dosya)
+    kok = logging.getLogger()
+    for mevcut in kok.handlers:
+        if isinstance(mevcut, logging.FileHandler) and \
+                os.path.abspath(getattr(mevcut, "baseFilename", "")) == tam_yol:
+            return mevcut
+
+    tutamak = logging.FileHandler(tam_yol, encoding="utf-8")
+    tutamak.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    kok.addHandler(tutamak)
+    return tutamak
+
 
 GECMIS_SUTUNLARI = [
     "Tarih", "Toplam_Maliyet_USD", "Toplam_Deger_USD", "Acik_KZ_USD",
@@ -129,7 +155,14 @@ def main():
         help="Her gün 23:30'da tekrarla (yerel kullanım için; CI'da kullanmayın).",
     )
     ayristirici.add_argument("--saat", default="23:30", help="--surekli ile çalışma saati (TSİ).")
+    ayristirici.add_argument(
+        "--log", metavar="DOSYA",
+        help="Çıktıyı bu dosyaya da yaz (Görev Zamanlayıcı için).",
+    )
     secenekler = ayristirici.parse_args()
+
+    if secenekler.log:
+        dosya_gunlugu_ekle(secenekler.log)
 
     if not secenekler.surekli:
         return gun_sonu_kaydet()
