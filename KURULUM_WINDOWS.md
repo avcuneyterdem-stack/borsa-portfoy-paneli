@@ -1,10 +1,16 @@
 # Windows'ta adım adım kurulum
 
-Bu dosya, paneli ve portföy asistanını kendi bilgisayarında ilk kez çalıştırmak
-içindir. Adımları sırayla uygula; her adımın sonunda ne görmen gerektiği yazıyor.
+Bu dosya, paneli kendi bilgisayarında ilk kez çalıştırmak içindir. Adımları
+sırayla uygula; her adımın sonunda ne görmen gerektiği yazıyor.
 
-Komutları **PowerShell**'de çalıştır (Başlat → "PowerShell" yaz → aç).
-Önce proje klasörüne gir — klasör yolun farklıysa onu yaz:
+**1–4. adımlar hiçbir ücret gerektirmez.** Panelin altı sekmesi (portföy,
+işlem girişi, grafikler, temettü, anlık takip, denetim) bunlarla çalışır.
+Sonundaki *Portföy asistanı* bölümü isteğe bağlıdır ve **ücretlidir** —
+istemiyorsan hiç kurma.
+
+Komutları **PowerShell**'de çalıştır. En kolay yol: VS Code'da klasörü açıp
+**Terminal → New Terminal** demek; terminal doğru klasörde açılır. Alternatif:
+`Windows tuşu` + `R` → `powershell` → Enter, sonra klasöre gir:
 
 ```powershell
 cd $HOME\Desktop\borsa-portfoy-paneli
@@ -18,8 +24,11 @@ cd $HOME\Desktop\borsa-portfoy-paneli
 git pull
 ```
 
-Beklenen: `ajan.py`, `piyasa.py`, `KURULUM_WINDOWS.md` gibi dosyaların indiğini
-gösteren bir liste. "Already up to date" görürsen de sorun yok.
+Beklenen: indirilen dosyaların listesi ya da "Already up to date".
+
+> Git bir dosyayı silemediğini söylerse (`Deletion of directory ... failed`),
+> o dosya VS Code'da açıktır. `n` yazıp Enter'a bas, **File → Close All
+> Editors** yap, sonra `git pull` komutunu tekrarla.
 
 ## 2. Bağımlılıkları kur
 
@@ -27,8 +36,8 @@ gösteren bir liste. "Already up to date" görürsen de sorun yok.
 pip install -r requirements.txt
 ```
 
-Yeni olan paket `anthropic` — asistanın Claude'a bağlanmasını sağlayan kütüphane.
-Beklenen: en sonda `Successfully installed ...` satırı.
+Beklenen: en sonda `Successfully installed ...` satırı. ("pip tanınmıyor"
+derse `python -m pip install -r requirements.txt` kullan.)
 
 ## 3. Testleri çalıştır (kod sağlam mı)
 
@@ -36,98 +45,92 @@ Beklenen: en sonda `Successfully installed ...` satırı.
 pytest -q
 ```
 
-Beklenen: `73 passed`. Bu adım internet gerektirmez; geçerse kodun kendi
-matematiği doğru çalışıyor demektir.
+Beklenen: `73 passed`. Bu adım internet gerektirmez; geçerse kodun para
+hesapları doğru çalışıyor demektir.
 
-## 4. `ant` aracını indir
-
-Asistanın Claude hesabınla giriş yapabilmesi için gereken küçük bir program.
-
-1. Tarayıcıda aç: <https://github.com/anthropics/anthropic-cli/releases>
-2. En üstteki sürümün altındaki **Assets** listesinden
-   `ant_<sürüm>_windows_amd64.zip` dosyasını indir.
-3. Zip'i aç, içindeki `ant.exe` dosyasını **proje klasörüne** kopyala
-   (yani `app.py` ile aynı yere).
-
-`.gitignore` içinde `*.exe` olduğu için bu dosya depoya gitmez, merak etme.
-
-Kontrol:
-
-```powershell
-.\ant.exe --version
-```
-
-Beklenen: bir sürüm numarası. "tanınmıyor" hatası alırsan `ant.exe` yanlış
-klasörde demektir.
-
-## 5. Claude hesabınla giriş yap
-
-```powershell
-.\ant.exe auth login
-```
-
-Tarayıcı açılır, Claude hesabınla onay verirsin. Kimlik bilgisi bilgisayarında
-saklanır; kodun içine hiçbir şey yazılmaz.
-
-## 6. API anahtarı değişkenini kontrol et
-
-```powershell
-echo $env:ANTHROPIC_API_KEY
-```
-
-Beklenen: **boş satır**. Eğer bir değer yazıyorsa, o değişken 5. adımdaki
-profili ezer ve kullandıkça ücretlendirilen yola geçersin. Aboneliğinden
-gitmesini istiyorsan o oturumda temizle:
-
-```powershell
-Remove-Item Env:\ANTHROPIC_API_KEY
-```
-
-## 7. Asistanı önce terminalde dene
-
-```powershell
-python ajan.py "Portföyümde ne durumdayım?"
-```
-
-Terminalde denemenin sebebi: hata çıkarsa mesajı burada net görünür, panelin
-içinde kaybolmaz.
-
-Beklenen: Türkçe bir özet ve en altta köşeli parantez içinde token sayısı ile
-çağrılan araçların listesi.
-
-Sık görülen çıktılar:
-
-| Mesaj | Anlamı |
-|---|---|
-| `pip install anthropic` uyarısı | 2. adım eksik veya başka bir Python kullanılıyor |
-| "Claude kimliği bulunamadı" | 5. adım tamamlanmamış |
-| "Portföy boş" | Defter dosyaları henüz bu klasörde değil |
-| "fiyat çekilemedi" | İnternet/sağlayıcı sorunu; rakam uydurulmaz, eksik olan söylenir |
-
-## 8. Paneli aç
+## 4. Paneli aç
 
 ```powershell
 streamlit run app.py
 ```
 
-Tarayıcıda panel açılır. **Sekme 5 → Portföy Asistanı** altında aynı soruyu
-kutuya yazıp sorabilirsin.
+Tarayıcıda panel açılır. Kapatmak için terminalde `Ctrl+C`.
+
+Kurulum burada biter. Aşağısı yalnızca asistanı da istersen gereklidir.
+
+---
+
+# İsteğe bağlı: Portföy asistanı (ÜCRETLİDİR)
+
+Sekme 5'teki asistan, portföyün hakkında serbest soru sormanı sağlar. Ama:
+
+> **Bu bölüm Claude aboneliğinden çalışmaz.** Ayrı bir **Claude Console (API)**
+> hesabı gerektirir ve kullandıkça ücretlendirilir. `ant auth login` de,
+> `ANTHROPIC_API_KEY` de aynı faturaya gider — ücretsiz bir yolu yoktur.
+>
+> **Maliyet:** Claude Opus 5 için milyon girdi token'ı 5 $, milyon çıktı
+> token'ı 25 $. Bu asistanda soru başına kabaca **0,10–0,15 $**.
+> `ajan.py` içindeki `ETKI` sabitini `"medium"`/`"low"` yapmak veya `MODEL`'i
+> `claude-sonnet-5` yapmak maliyeti belirgin biçimde düşürür.
+>
+> Ödeme yapmak istemiyorsan bu bölümü atla. Panelin geri kalanı asistan
+> olmadan sorunsuz çalışır; Sekme 5'e girmediğin sürece hiçbir istek gitmez.
+
+## A. Console hesabı aç ve kredi yükle
+
+<https://platform.claude.com> → **Individual** → hesabı oluştur → faturalandırma
+bölümünden kredi yükle (genelde en az 5 $).
+
+## B. `ant` aracını indir
+
+Terminalde (sürüm numarasını güncel sürümle değiştir):
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/anthropics/anthropic-cli/releases/download/v1.22.1/ant_1.22.1_windows_amd64.zip" -OutFile ant.zip
+Expand-Archive ant.zip -DestinationPath . -Force
+Remove-Item ant.zip, completions, man -Recurse -Force
+```
+
+Kontrol: `.\ant.exe --version` bir sürüm numarası yazmalı. `ant.exe` depoya
+gitmez — `.gitignore` içinde `*.exe` var.
+
+## C. Giriş yap
+
+```powershell
+.\ant.exe auth login
+```
+
+Tarayıcıda Console hesabınla onay verirsin.
+
+## D. Terminalde dene
+
+```powershell
+python ajan.py "Portföyümde ne durumdayım?"
+```
+
+Terminalde denemenin sebebi: hata çıkarsa mesajı burada net görünür.
+
+| Mesaj | Anlamı |
+|---|---|
+| `pip install anthropic` uyarısı | 2. adım eksik veya başka bir Python kullanılıyor |
+| "Claude Console kimliği bulunamadı" | A veya C adımı tamamlanmamış |
+| "Portföy boş" | Defter dosyaları henüz bu klasörde değil |
+| "fiyat çekilemedi" | İnternet/sağlayıcı sorunu; rakam uydurulmaz, eksik olan söylenir |
 
 ---
 
 ## Bilinmesi gerekenler
 
-**Veri nereye gidiyor?** Asistana soru sorduğun anda portföy verilerin
-(pozisyonlar, maliyetler, kâr/zarar) Anthropic API'sine gider. Soru sormadığın
-sürece panel hiçbir veriyi dışarı göndermez.
+**Vazgeçmek istersen.** `ant.exe` dosyasını sil ve Console hesabındaki kartı
+kaldır. Panelin diğer sekmeleri etkilenmez.
+
+**Veri nereye gidiyor?** Yalnızca asistana soru sorduğunda: portföy verilerin
+(pozisyonlar, maliyetler, kâr/zarar) Anthropic API'sine gider. Asistanı
+kullanmadığın sürece panel hiçbir veriyi dışarı göndermez.
 
 **Asistan defteri değiştirebilir mi?** Hayır. Bütün araçları salt-okunurdur:
 okur, yazamaz. İşlem giremez, kayıt silemez. Bu bir tasarım sınırıdır ve
 `test_ajan.py` içindeki bir testle korunur.
-
-**Maliyet.** `ant auth login` profiliyle ek ödeme çıkmaz; kullanım Claude
-aboneliğinin kotasından düşer. Daha az token harcamak istersen `ajan.py`
-içindeki `ETKI = "high"` satırını `"medium"` yap.
 
 **Claude Code de kurarsan.** Claude Code ile `ant` kimlik bilgilerini aynı yerde
 saklar. İkisini birlikte kurarsan biri diğerinin oturumunu düşürebilir; böyle

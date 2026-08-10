@@ -788,12 +788,17 @@ with sekme5:
 
     with st.expander("ℹ️ Asistan hakkında — kurulum, gizlilik, maliyet"):
         st.markdown(
-            "**Kurulum.** Terminalde bir kez `ant auth login` çalıştırmanız yeterli; "
-            "Claude hesabınızla giriş yapar ve bilgisayarınızda bir profil saklar. "
-            "API anahtarı gerekmez.\n\n"
-            "**Maliyet.** Bu profille çalışırken ek ödeme çıkmaz — kullanım "
-            "Claude aboneliğinizin kotasından düşer. Bunun yerine "
-            "`ANTHROPIC_API_KEY` tanımlarsanız kullandıkça ücretlendirilirsiniz.\n\n"
+            "**Bu bölüm ücretlidir.** Asistan, Claude aboneliğinden değil, ayrı bir "
+            "**Claude Console (API)** hesabından çalışır ve kullandıkça ücretlendirilir. "
+            "Ödeme yapmak istemiyorsanız bu bölümü kullanmayın; panelin diğer "
+            "sekmeleri hiçbir ücret gerektirmez.\n\n"
+            "**Kurulum.** platform.claude.com üzerinde bir Console hesabı açıp kredi "
+            "yüklemeniz, sonra terminalde bir kez `ant auth login` çalıştırmanız gerekir. "
+            "Alternatif olarak `ANTHROPIC_API_KEY` ortam değişkeni tanımlanabilir.\n\n"
+            "**Maliyet.** Claude Opus 5 için milyon girdi token'ı 5 $, milyon çıktı "
+            "token'ı 25 $. Bu asistanda soru başına kabaca 0,10–0,15 $. `ajan.py` "
+            "içindeki `ETKI` sabitini düşürmek veya `MODEL`'i `claude-sonnet-5` "
+            "yapmak maliyeti belirgin biçimde azaltır.\n\n"
             "**Gizlilik.** Soru sorduğunuzda portföy verileriniz (pozisyonlar, "
             "maliyetler, kâr/zarar) Anthropic API'sine gönderilir. Soru sormadığınız "
             "sürece hiçbir veri dışarı çıkmaz."

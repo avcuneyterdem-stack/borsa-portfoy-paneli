@@ -124,7 +124,7 @@ defteri paylaşır. Buluta taşımak gerekirse önce kimlik doğrulamalı bir
 veritabanına (kullanıcı bazlı SQLite veya harici DB) geçilmelidir; asistan da
 o durumda `ant` profiliyle değil, API anahtarıyla çalışmak zorundadır.
 
-## Portföy asistanı
+## Portföy asistanı (isteğe bağlı — ÜCRETLİDİR)
 
 Sekme 5'teki asistana portföyünüz hakkında serbest soru sorabilirsiniz —
 "ne durumdayım", "en çok nerede zarardayım", "THYAO'yu ne zaman aldım" gibi.
@@ -134,25 +134,31 @@ Komut satırından da çalışır:
 python ajan.py "Portföyümde ne durumdayım?"
 ```
 
-**Kurulum — bir kez.** [anthropic-cli](https://github.com/anthropics/anthropic-cli/releases)
-sayfasından `ant` dosyasını indirin, sonra:
+> **Ücret uyarısı.** Bu bölüm **Claude aboneliğinden çalışmaz.** Ayrı bir
+> **Claude Console (API)** hesabı gerektirir ve kullandıkça ücretlendirilir —
+> `ant auth login` de, `ANTHROPIC_API_KEY` de aynı faturaya gider.
+> Ödeme yapmak istemiyorsanız bu bölümü kurmayın: panelin diğer altı sekmesi
+> asistan olmadan sorunsuz çalışır ve hiçbir ücret gerektirmez.
+
+**Kurulum — bir kez.** <https://platform.claude.com> üzerinde bir Console
+hesabı açıp kredi yükleyin. Sonra
+[anthropic-cli](https://github.com/anthropics/anthropic-cli/releases)
+sayfasından `ant` dosyasını indirip:
 
 ```bash
 ant auth login
 ```
 
-Tarayıcı açılır, Claude hesabınızla giriş yaparsınız. Kimlik bilgisi
+Tarayıcı açılır, Console hesabınızla giriş yaparsınız. Kimlik bilgisi
 bilgisayarınızda saklanır; kodda API anahtarı tutulmaz.
 
-> Bilgisayarınızda `ANTHROPIC_API_KEY` ortam değişkeni tanımlıysa bu profili
-> ezer ve kullandıkça ücretlendirilen yola girersiniz. Aboneliğinizden gitmesini
-> istiyorsanız o değişkeni tanımsız bırakın.
-
-**Maliyet.** `ant auth login` profiliyle ek ödeme çıkmaz; kullanım Claude
-aboneliğinizin kotasından düşer. `ANTHROPIC_API_KEY` ile çalıştırırsanız
-kullandıkça ödersiniz (soru başına yaklaşık 0,05–0,10 $). `ajan.py` içindeki
-`ETKI` sabiti ana ayar kolu — `"high"` varsayılan, `"medium"` ve `"low"` bu iş
-yükünde belirgin biçimde daha az token harcar.
+**Maliyet.** Claude Opus 5 için milyon girdi token'ı 5 $, milyon çıktı token'ı
+25 $. Bu asistanda bir soru sistem promptu, araç tanımları, portföy verisi ve
+modelin düşünmesiyle birlikte kabaca 15.000 girdi + 2.000 çıktı token tüketir —
+**soru başına yaklaşık 0,10–0,15 $**. İki ayar kolu var, ikisi de `ajan.py`
+içinde: `ETKI` sabitini `"medium"` veya `"low"` yapmak, ve `MODEL`'i
+`claude-sonnet-5` yapmak (3 $ / 15 $ — kabaca yarı fiyat). Bu iş yükünde her
+ikisi de kaliteyi belirgin biçimde düşürmez.
 
 **Gizlilik.** Soru sorduğunuzda portföy verileriniz Anthropic API'sine gider.
 Soru sormadığınız sürece panel hiçbir veriyi dışarı göndermez.

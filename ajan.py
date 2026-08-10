@@ -9,10 +9,10 @@ Güvenlik sınırı: BÜTÜN ARAÇLAR SALT-OKUNURDUR. Ajan defteri okuyabilir,
 yazamaz; işlem giremez, silemez, düzeltemez. Bir dil modeline finansal
 kayıt emanet etmemenin tek doğru yolu, yazma yolunu hiç açmamaktır.
 
-Kimlik doğrulama: `ant auth login` ile oluşturulan profil yeterlidir
-(ek ücret çıkmaz, Claude aboneliğinden düşer). Alternatif olarak
-ANTHROPIC_API_KEY ortam değişkeni kullanılabilir — o durumda kullandıkça
-ücretlendirilirsiniz.
+ÜCRETLİDİR. Bu ajan Claude aboneliğinden değil, ayrı bir Claude Console
+(API) hesabından çalışır ve kullandıkça ücretlendirilir. Kimlik doğrulama
+`ant auth login` (Console hesabıyla giriş) veya ANTHROPIC_API_KEY ile
+yapılır; ikisi de aynı faturaya gider. Yaklaşık maliyet için README'ye bakın.
 
 Kullanım:
     python ajan.py "Portföyümde ne durumdayım?"
@@ -232,8 +232,9 @@ def sor(soru, model=MODEL, etki=ETKI):
                 blok.text for blok in son_mesaj.content if blok.type == "text"
             )
     except anthropic.AuthenticationError:
-        sonuc["hata"] = ("Claude kimliği bulunamadı. Terminalde `ant auth login` "
-                         "çalıştırın (aboneliğinizden düşer, ek ücret yok) veya "
+        sonuc["hata"] = ("Claude Console kimliği bulunamadı. Bu bölüm ücretlidir: "
+                         "platform.claude.com üzerinden kredi yüklü bir API hesabı "
+                         "gerekir. Sonra `ant auth login` çalıştırın veya "
                          "ANTHROPIC_API_KEY tanımlayın.")
     except anthropic.RateLimitError:
         sonuc["hata"] = "Kullanım limitine takıldınız. Biraz bekleyip tekrar deneyin."
