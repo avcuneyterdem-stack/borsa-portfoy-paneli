@@ -68,8 +68,8 @@ def canlı_kripto_sorgula(search_term: str):
         pass
     return [(f"🪙 {term} / USDT", term)]
 
-# --- %100 CANLI YARDIMCI VE İNDİKATÖR FONKSİYONLARI ---
-@st.cache_data(ttl=30)
+# --- %100 ANLIK VERİ İNDİKATÖR VE DÖVİZ FONKSİYONLARI (SINIRLAR KALDIRILDI) ---
+@st.cache_data(ttl=0) # SINIR KALDIRILDI: Her çağrıda canlı çekilir
 def doviz_kurlari_getir():
     kurlar = {"USD": 1.0, "EUR": 1.0, "GBP": 1.0, "TRY": 1.0}
     try:
@@ -527,12 +527,11 @@ with tab4:
         st.subheader("🏛️ Küresel Ekonomik & FED Makro Takvimi")
         components.html(tradingview_makro_takvim_widget(), height=460)
 
-# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (KATEGORİLİ VE CANLI DİNAMİK)
+# SEKME 5: SİSTEM, AR-GE & QA TEST AJANI (AÇILIR MENÜLÜ DİNAMİK)
 with tab5:
     st.title("💻 Akıllı Yazılım, Ar-Ge & Otonom QA Test Ajanı")
-    st.caption("Ajan Becerileri: Otonom Kod Denetimi, Canlı Veriye Dayalı Ar-Ge Taraması ve QA Anormallik Simülatörü.")
+    st.caption("Ajan Becerileri: Kod Denetimi, Dinamik Kategorili FinTek Taraması, Veri Mantık Taraması ve API Takibi.")
     
-    # 1. SKILL: KOD DENETİMİ
     def skill_code_audit():
         audit_results = []
         if os.path.exists(EXCEL_HISSE): audit_results.append("✅ **Hisse Veri Tabanı:** Aktif ve Erişilebilir.")
@@ -545,7 +544,6 @@ with tab5:
         except: audit_results.append("❌ **Binance API Skill:** Kesinti var!")
         return audit_results
 
-    # 2. SKILL: DİNAMİK AR-GE ARAŞTIRMACISI (AÇILIR MENÜLÜ & CANLI PORTFÖY DESTEKLİ)
     def skill_fintech_research_kategorili(konu):
         df_h = veri_yukle(EXCEL_HISSE)
         df_k = veri_yukle(EXCEL_KRIPTO)
@@ -556,7 +554,7 @@ with tab5:
         if "küresel" in konu.lower() or "abd" in konu.lower():
             us_hisseler = [h for h in h_hisseler if not str(h).endswith(".IS")]
             return [
-                f"🌐 **Küresel Varlık Analizi:** Portföyünüzde şu an {len(us_hisseler)} adet ABD/Global hisse senedi tespit edildi.",
+                f"🌐 **Küresel Varlık Analizi:** Portföyünüzde {len(us_hisseler)} adet ABD/Global hisse senedi tespit edildi.",
                 "💵 **Çoklu Para Birimi Otomasyonu:** ABD Hisseleri doğrudan USD cinsinden anlık kurlarla takip ediliyor.",
                 "🏛️ **FED / Makro Takvim:** Canlı küresel ekonomik takvim 4. Sekmeye entegre çalışmaktadır."
             ]
@@ -585,7 +583,6 @@ with tab5:
                 f"🔔 **Akıllı Alarm Botu:** Portföydeki {len(k_kriptolar)} kripto ve hisse için fiyat kırılım bildirim botu."
             ]
 
-    # 3. SKILL: QA TEST SİMÜLASYONU
     def qa_test_simulasyonu(test_turu, test_sembol="NVO"):
         test_raporu = []
         if test_turu == "Temettü Verim & Oran Mantık Denetimi":
@@ -674,9 +671,9 @@ with tab5:
     st.subheader("📜 Ajanın Dinamik Gelişim Yol Haritası (Roadmap)")
     st.info("""
     **Sistem Mimarı Ajan Notu:** 
-    1. Ar-Ge Ajanının kategorili arama yapısı eksiksiz geri yüklendi.
-    2. Kategorilerin altındaki analizler portföy ve piyasa verilerine dinamik olarak bağlandı.
-    3. Tüm beceriler çakışmasız, stabil ve canlı modda çalışıyor.
+    1. Ar-Ge Ajanının açılır menü kategorileri korundu.
+    2. Her bir kategori altındaki analizler doğrudan canlı portföydeki hisse adetleri ve verilerle dinamikleştirildi.
+    3. Canlı test modunda önbellek sınırları esnetildi.
     """)
 
 # SEKME 6: TEMETTÜ TAKVİMİ
