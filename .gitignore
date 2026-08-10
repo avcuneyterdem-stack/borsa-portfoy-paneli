@@ -1,3 +1,8 @@
 *.xlsx
 __pycache__/
 .env
+
+# Derleme/kurulum dosyaları ve kısayollar depoya girmemeli
+*.exe
+*.lnk
+*.msi
