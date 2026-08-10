@@ -8,12 +8,20 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    # Panel geliştiricinin makinesinde 3.14, CI'da uzun süre yalnızca 3.11
+    # ile test ediliyordu. Testlerin yeşil olması, kullanılan sürümde
+    # çalıştığını kanıtlamıyordu; ikisi birden denenir.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    name: pytest (Python ${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Bağımlılıkları yükle

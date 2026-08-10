@@ -31,7 +31,7 @@ python anlik_takip_ajani.py --surekli --aralik 60
 | Dosya | Sorumluluk |
 |---|---|
 | `portfoy_core.py` | Saf hesap katmanı: para çevrimi, pozisyon/K-Z hesabı, RSI, şema, dayanıklı dosya yazımı. Streamlit ve ağ erişimi içermez. |
-| `app.py` | Arayüz, disk erişimi ve piyasa verisi çekimi. |
+| `app.py` | Arayüz ve disk erişimi. Piyasa verisi `piyasa.py`'den gelir; buradaki fonksiyonlar yalnızca streamlit önbelleği ekleyen sarmalayıcılardır. |
 | `test_portfoy_core.py` | Çekirdeğin birim testleri. |
 | `piyasa.py` | Ağ katmanı: kurlar, hisse/kripto fiyatları, gösterge geçmişi. Streamlit içermez. |
 | `indikator.py` | Teknik göstergeler (RSI, MACD, SMA, Bollinger) ve kural motoru. Saf matematik: ağ, dosya, streamlit yok. |

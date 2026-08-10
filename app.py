@@ -6,7 +6,6 @@ yalnızca üç işi yapar: diskten okuma/yazma, piyasa verisi çekme ve çizim.
 
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
 import glob
 import json
@@ -27,8 +26,16 @@ import indikator as ind
 import izleme
 import portfoy_core as pc
 # Sekme 4'te `piyasa` adında yerel bir değişken var; modülü olduğu gibi
-# içe aktarmak onu ezerdi. Yalnızca gereken fonksiyon alınıyor.
-from piyasa import gosterge_paketi as _gosterge_paketi
+# içe aktarmak onu ezerdi. Bu yüzden fonksiyonlar tek tek alınıyor.
+from piyasa import (
+    binance_sembolleri as _binance_sembolleri,
+    gosterge_paketi as _gosterge_paketi,
+    hisse_fiyatlari as _hisse_fiyatlari,
+    kripto_fiyatlari as _kripto_fiyatlari,
+    kripto_rsi as _kripto_rsi,
+    kurlari_getir as _kurlari_getir,
+    sembol_meta as _sembol_meta,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 kayitci = logging.getLogger("portfoy")
@@ -40,7 +47,6 @@ EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 YEDEK_SAYISI = 10
 TSI = ZoneInfo("Europe/Istanbul")
 BINANCE = "https://api.binance.com"
-TEMEL_PARA_BIRIMLERI = ("USD", "EUR", "GBP")
 
 if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
@@ -85,143 +91,42 @@ def veri_kaydet(df, dosya):
         return False
 
 
-def _hizli_al(hizli_bilgi, *adlar):
-    for ad in adlar:
-        with contextlib.suppress(Exception):
-            deger = hizli_bilgi[ad]
-            if deger is not None:
-                return deger
-        with contextlib.suppress(Exception):
-            deger = getattr(hizli_bilgi, ad)
-            if deger is not None and not callable(deger):
-                return deger
-    return None
-
+# --- Piyasa verisi ----------------------------------------------------------
+# Bu fonksiyonların gövdesi `piyasa.py` içindedir; buradakiler yalnızca
+# streamlit önbelleğini ekleyen ince sarmalayıcılardır.
+#
+# Daha önce her ikisinde de tam kopyaları vardı. Kopya, bugün yanlış sayı
+# üretmiyordu (ölçüldü) ama ilk düzeltmede üretmeye başlardı: birinde
+# düzeltilen hata diğerinde kalırdı. Tek kaynak, tek davranış.
 
 @st.cache_data(ttl=300, show_spinner=False)
 def kurlari_getir(para_birimleri):
-    kurlar = {"TRY": 1.0}
-    istenen = [pb for pb in sorted(set(para_birimleri) | set(TEMEL_PARA_BIRIMLERI)) if pb != "TRY"]
-    for pb in istenen:
-        kurlar[pb] = None
-    if not istenen:
-        return kurlar
-
-    semboller = [f"{pb}TRY=X" for pb in istenen]
-    try:
-        veri = yf.download(semboller, period="5d", progress=False, auto_adjust=False)["Close"]
-        for pb, sembol in zip(istenen, semboller):
-            try:
-                seri = veri[sembol] if len(semboller) > 1 else veri
-                seri = seri.dropna()
-                if not seri.empty:
-                    kurlar[pb] = float(seri.iloc[-1])
-            except (KeyError, IndexError, TypeError, ValueError):
-                kayitci.warning("Kur çekilemedi: %s", sembol)
-    except Exception:
-        kayitci.exception("Kur servisi yanıt vermedi")
-    return kurlar
+    return _kurlari_getir(para_birimleri)
 
 
 @st.cache_data(ttl=21600, show_spinner=False, max_entries=512)
 def sembol_meta(kod):
-    meta = {"borsa_pb": pc.varsayilan_borsa_pb(kod), "piyasa_degeri": None}
-    try:
-        hizli = yf.Ticker(kod).fast_info
-        meta["borsa_pb"] = pc.varsayilan_borsa_pb(kod, _hizli_al(hizli, "currency"))
-        meta["piyasa_degeri"] = _hizli_al(hizli, "market_cap", "marketCap")
-    except Exception:
-        kayitci.warning("Sembol bilgisi alınamadı: %s", kod)
-    return meta
+    return _sembol_meta(kod)
 
 
 @st.cache_data(ttl=180, show_spinner=False)
 def hisse_piyasa_verisi(semboller):
-    kodlar = sorted({pc.sembol_normalize(s) for s in semboller if str(s).strip()})
-    if not kodlar:
-        return {}
-    sonuc = {}
-    try:
-        veri = yf.download(
-            kodlar, period="90d", group_by="ticker",
-            auto_adjust=False, progress=False, threads=True,
-        )
-    except Exception:
-        kayitci.exception("Toplu fiyat çekimi başarısız")
-        return {}
-
-    for kod in kodlar:
-        try:
-            cerceve = veri if len(kodlar) == 1 else veri[kod]
-            kapanis = cerceve["Close"].dropna()
-            if len(kapanis) < 2:
-                continue
-            rsi_serisi = pc.wilder_rsi(kapanis)
-            son_rsi = rsi_serisi.iloc[-1]
-            sonuc[kod] = {
-                "fiyat": float(kapanis.iloc[-1]),
-                "degisim": (float(kapanis.iloc[-1]) / float(kapanis.iloc[-2]) - 1) * 100,
-                "rsi": None if pd.isna(son_rsi) else round(float(son_rsi), 2),
-            }
-        except (KeyError, IndexError, TypeError, ValueError):
-            kayitci.warning("Fiyat verisi ayrıştırılamadı: %s", kod)
-    return sonuc
+    return _hisse_fiyatlari(semboller)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def binance_sembolleri():
-    try:
-        yanit = requests.get(f"{BINANCE}/api/v3/ticker/price", timeout=5)
-        yanit.raise_for_status()
-        return sorted({s["symbol"] for s in yanit.json() if s["symbol"].endswith("USDT")})
-    except Exception:
-        kayitci.exception("Binance sembol listesi alınamadı")
-        return []
+    return _binance_sembolleri()
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def kripto_piyasa_verisi(semboller):
-    gecerli_liste = set(binance_sembolleri())
-    parite = {f"{str(s).upper().replace('USDT', '')}USDT": str(s).upper() for s in semboller}
-    sorulacak = [p for p in sorted(parite) if p in gecerli_liste]
-    if not sorulacak:
-        return {}
-    try:
-        yanit = requests.get(
-            f"{BINANCE}/api/v3/ticker/24hr",
-            params={"symbols": json.dumps(sorulacak, separators=(",", ":"))},
-            timeout=6,
-        )
-        yanit.raise_for_status()
-        return {
-            parite[kayit["symbol"]]: {
-                "fiyat": float(kayit["lastPrice"]),
-                "degisim": float(kayit["priceChangePercent"]),
-            }
-            for kayit in yanit.json() if kayit["symbol"] in parite
-        }
-    except Exception:
-        kayitci.exception("Kripto fiyatları alınamadı")
-        return {}
+    return _kripto_fiyatlari(semboller, gecerli_liste=set(binance_sembolleri()))
 
 
 @st.cache_data(ttl=600, show_spinner=False, max_entries=128)
 def kripto_rsi(sembol):
-    try:
-        yanit = requests.get(
-            f"{BINANCE}/api/v3/klines",
-            params={"symbol": f"{sembol.upper()}USDT", "interval": "1d", "limit": 90},
-            timeout=6,
-        )
-        yanit.raise_for_status()
-        kapanis = pd.Series([float(mum[4]) for mum in yanit.json()])
-        if len(kapanis) < 20:
-            return None
-        son = pc.wilder_rsi(kapanis).iloc[-1]
-        return None if pd.isna(son) else round(float(son), 2)
-    except Exception:
-        kayitci.warning("Kripto RSI alınamadı: %s", sembol)
-        return None
+    return _kripto_rsi(sembol)
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=256)
