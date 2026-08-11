@@ -274,3 +274,93 @@ def test_iki_baglanti_ayni_anda_yazabilir(db):
         # Birinci bağlantı açıkken ikincisi yazabilmeli.
         veri.islem_ekle("kripto", kayit(Hisse="BTC"), db)
     assert veri.sayim(db) == {"hisse": 1, "kripto": 1}
+
+
+# --- Düzenleme farkı --------------------------------------------------------
+
+def cerceve(*satirlar):
+    """id'li küçük bir tablo kurar."""
+    kayitlar = []
+    for i, alanlar in enumerate(satirlar, start=1):
+        k = kayit(**alanlar)
+        k["id"] = i
+        kayitlar.append(k)
+    return pd.DataFrame(kayitlar)
+
+
+def test_degisiklik_yoksa_bos_doner():
+    tablo = cerceve({}, {})
+    assert veri.degisiklikleri_bul(tablo, tablo.copy()) == {}
+
+
+def test_degisen_hucre_bulunur():
+    onceki = cerceve({"Fiyat": 100.0})
+    sonraki = onceki.copy()
+    sonraki.loc[0, "Fiyat"] = 150.0
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {1: {"Fiyat": 150.0}}
+
+
+def test_ayni_satirda_birden_cok_alan():
+    onceki = cerceve({"Fiyat": 100.0, "Adet": 2.0})
+    sonraki = onceki.copy()
+    sonraki.loc[0, "Fiyat"] = 120.0
+    sonraki.loc[0, "Adet"] = 3.0
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {1: {"Fiyat": 120.0, "Adet": 3.0}}
+
+
+def test_yalnizca_degisen_satir_doner():
+    onceki = cerceve({"Hisse": "AAPL"}, {"Hisse": "MSFT"})
+    sonraki = onceki.copy()
+    sonraki.loc[1, "Hisse"] = "NVDA"
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {2: {"Hisse": "NVDA"}}
+
+
+def test_bos_degerler_birbirine_esit_sayilir():
+    """NaN, None ve boş metin aynı şeydir; farklı sayılırsa dokunulmamış
+    satırlar her kaydetmede yeniden yazılırdı."""
+    onceki = cerceve({"Kazan": None})
+    sonraki = cerceve({"Kazan": ""})
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {}
+
+
+def test_kucuk_ondalik_farki_degisiklik_sayilmaz():
+    """Kayan noktalı gösterim gidiş-dönüşte mikro fark üretebilir."""
+    onceki = cerceve({"Fiyat": 100.0})
+    sonraki = onceki.copy()
+    sonraki.loc[0, "Fiyat"] = 100.0 + 1e-12
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {}
+
+
+def test_id_sutunu_yoksa_hicbir_sey_dondurmez():
+    """Kimliksiz satırın hangi kaydı güncelleyeceği bilinemez."""
+    tablo = pd.DataFrame([kayit()])
+    assert veri.degisiklikleri_bul(tablo, tablo.copy()) == {}
+
+
+def test_silinen_satir_degisiklik_olarak_gorunmez():
+    onceki = cerceve({"Hisse": "AAPL"}, {"Hisse": "MSFT"})
+    sonraki = onceki.iloc[[0]].copy()
+    assert veri.degisiklikleri_bul(onceki, sonraki) == {}
+
+
+def test_degisiklikler_veritabanina_uygulanir(db):
+    kimlik = veri.islem_ekle("hisse", kayit(Fiyat=100.0), db)
+    uygulanan = veri.degisiklikleri_uygula({kimlik: {"Fiyat": 175.0}}, db)
+    assert uygulanan == 1
+    assert veri.kayit_getir(kimlik, db)["Fiyat"] == pytest.approx(175.0)
+
+
+def test_uctan_uca_duzenleme(db):
+    """Oku → değiştir → farkı bul → uygula → tekrar oku."""
+    veri.islem_ekle("hisse", kayit(Hisse="AAPL", Fiyat=100.0), db)
+    veri.islem_ekle("hisse", kayit(Hisse="MSFT", Fiyat=200.0), db)
+
+    onceki = veri.defter_oku("hisse", db)
+    sonraki = onceki.copy()
+    sonraki.loc[sonraki["Hisse"] == "MSFT", "Fiyat"] = 250.0
+
+    veri.degisiklikleri_uygula(veri.degisiklikleri_bul(onceki, sonraki), db)
+
+    guncel = veri.defter_oku("hisse", db).set_index("Hisse")
+    assert guncel.loc["MSFT", "Fiyat"] == pytest.approx(250.0)
+    assert guncel.loc["AAPL", "Fiyat"] == pytest.approx(100.0)

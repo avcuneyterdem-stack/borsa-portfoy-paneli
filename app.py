@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import glob
+import io
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from streamlit_searchbox import st_searchbox
 import indikator as ind
 import izleme
 import portfoy_core as pc
+import veri
 # Sekme 4'te `piyasa` adında yerel bir değişken var; modülü olduğu gibi
 # içe aktarmak onu ezerdi. Bu yüzden fonksiyonlar tek tek alınıyor.
 from piyasa import (
@@ -44,7 +46,6 @@ st.set_page_config(page_title="Global Ajan Portföy Paneli", page_icon="🌍", l
 
 EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
 EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
-YEDEK_SAYISI = 10
 TSI = ZoneInfo("Europe/Istanbul")
 BINANCE = "https://api.binance.com"
 
@@ -52,42 +53,66 @@ if os.path.exists("portfoy_defteri.xlsx") and not os.path.exists(EXCEL_HISSE):
     os.rename("portfoy_defteri.xlsx", EXCEL_HISSE)
 
 
-@st.cache_data(show_spinner=False, max_entries=8)
-def _excel_oku(dosya, _degisiklik_zamani):
-    return pd.read_excel(dosya)
-
-
-def veri_yukle(dosya):
-    hatalar = st.session_state.setdefault("yukleme_hatalari", {})
-    if not os.path.exists(dosya):
-        hatalar[dosya] = None
-        return pc.bos_defter()
+# Excel defterleri varsa ve veritabanı boşsa, bir kez aktar. İkinci kez
+# çalışmaz: çalışsaydı geçişten sonra girilen işlemleri silip eski Excel'in
+# üstüne yazardı. Excel dosyaları silinmez, ayrıca yedeklenir.
+if "gecis_yapildi" not in st.session_state:
+    st.session_state["gecis_yapildi"] = True
     try:
-        ham = _excel_oku(dosya, os.path.getmtime(dosya))
-        hatalar[dosya] = None
-        return pc.sema_uygula(ham)
+        _gecis = veri.otomatik_gecis()
+        if _gecis["hisse"] or _gecis["kripto"]:
+            st.session_state["gecis_sonucu"] = _gecis
+    except Exception as _hata:
+        kayitci.exception("Excel'den veritabanına geçiş başarısız")
+        st.session_state["gecis_hatasi"] = str(_hata)
+
+
+# Defterler artık SQLite'ta. Okuma önbelleğe alınmaz: birkaç yüz satırlık
+# bir sorgu milisaniyenin altında sürer, buna karşılık önbellek bayatlığı
+# kullanıcının az önce girdiği işlemi görmemesi demektir.
+
+def veri_yukle(defter):
+    """Defteri veritabanından okur. Hata olursa yazma kilitlenir."""
+    hatalar = st.session_state.setdefault("yukleme_hatalari", {})
+    try:
+        cerceve = veri.defter_oku(defter)
+        hatalar[defter] = None
+        return cerceve
     except Exception as hata:
-        kayitci.exception("Defter okunamadı: %s", dosya)
-        hatalar[dosya] = str(hata)
+        kayitci.exception("Defter okunamadı: %s", defter)
+        hatalar[defter] = str(hata)
         st.error(
-            f"⚠️ **{dosya} okunamadı:** {hata}\n\n"
-            "Veri kaybını önlemek için bu deftere yazma kilitlendi. "
-            "Dosya başka bir programda açıksa kapatıp sayfayı yenileyin."
+            f"⚠️ **{defter} defteri okunamadı:** {hata}\n\n"
+            "Veri kaybını önlemek için bu deftere yazma kilitlendi."
         )
         return pc.bos_defter()
 
 
-def veri_kaydet(df, dosya):
-    if st.session_state.get("yukleme_hatalari", {}).get(dosya):
-        st.error("❌ Bu defter okunamadığı için yazma engellendi. Önce dosya sorununu giderin.")
+def veri_kaydet(df, defter):
+    """Defterin tamamını değiştirir (toplu silme gibi işlemler için)."""
+    if st.session_state.get("yukleme_hatalari", {}).get(defter):
+        st.error("❌ Bu defter okunamadığı için yazma engellendi.")
         return False
     try:
-        pc.atomik_yaz(df, dosya, saklanacak_yedek=YEDEK_SAYISI)
-        _excel_oku.clear()
+        veri.defter_yaz(df, defter)
         return True
     except Exception as hata:
-        kayitci.exception("Kayıt başarısız: %s", dosya)
-        st.error(f"❌ Kayıt başarısız: {hata}  \nDosyanın önceki hâli değiştirilmedi.")
+        kayitci.exception("Kayıt başarısız: %s", defter)
+        st.error(f"❌ Kayıt başarısız: {hata}  \nDefterin önceki hâli değiştirilmedi.")
+        return False
+
+
+def islem_ekle(defter, kayit):
+    """Tek işlem ekler. Defterin tamamını yeniden yazmaz."""
+    if st.session_state.get("yukleme_hatalari", {}).get(defter):
+        st.error("❌ Bu defter okunamadığı için yazma engellendi.")
+        return False
+    try:
+        veri.islem_ekle(defter, kayit)
+        return True
+    except Exception as hata:
+        kayitci.exception("Kayıt eklenemedi: %s", defter)
+        st.error(f"❌ Kayıt eklenemedi: {hata}")
         return False
 
 
@@ -254,24 +279,82 @@ def metrik_satiri(ozet, toplam_maliyet, toplam_deger, gelir_etiketi):
     kutu[4].metric(gelir_etiketi, f"${ozet['gelir_usd']:,.2f}")
 
 
-def silme_bolumu(df, dosya, anahtar):
+# Düzenlenebilir alanlar. Tarih ve Hisse bilerek dışarıda: bunları değiştirmek
+# kaydı başka bir işleme çevirir; öyle bir ihtiyaç varsa doğrusu silip yeniden
+# girmektir. Islem_Kuru ve Islem_USDTRY de kilitli — o günün kuru geçmişte
+# kaldı, sonradan değiştirilirse maliyet hesabı sessizce bozulur.
+DUZENLENEBILIR_SUTUNLAR = ["Tip", "Fiyat", "Adet", "Kazan", "Borsa"]
+
+
+def kayit_yonetimi(df, defter, anahtar):
+    """İşlem kayıtlarını gösterir; düzeltme ve silme yapar.
+
+    Excel döneminde satırın kimliği olmadığı için yalnızca silme mümkündü ve
+    o da defteri baştan yazarak yapılıyordu. Artık her satırın `id`'si var;
+    değişen hücreler tek tek güncelleniyor.
+    """
     st.subheader("📜 Tüm İşlem Kayıtları")
+    if df.empty:
+        st.info("Henüz kayıt yok.")
+        return
+
+    st.caption(
+        "Hücrelere tıklayıp düzeltebilirsiniz. Tarih, hisse kodu ve işlem anındaki "
+        "kur değiştirilemez — bunlar değişirse kayıt başka bir işleme dönüşür ve "
+        "geçmiş maliyet hesabı bozulur. Böyle bir durumda kaydı silip yeniden girin."
+    )
+
     duzenlenebilir = df.copy()
     duzenlenebilir.insert(0, "Sil", False)
+    kilitli = [s for s in duzenlenebilir.columns
+               if s not in DUZENLENEBILIR_SUTUNLAR and s != "Sil"]
+
     duzenlenmis = st.data_editor(
         duzenlenebilir,
-        column_config={"Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False)},
-        disabled=[s for s in duzenlenebilir.columns if s != "Sil"],
-        hide_index=True, use_container_width=True, key=anahtar,
+        column_config={
+            "Sil": st.column_config.CheckboxColumn("Sil 🗑️", default=False),
+            "id": st.column_config.NumberColumn("No", disabled=True),
+        },
+        disabled=kilitli, hide_index=True, use_container_width=True, key=anahtar,
     )
-    secilenler = duzenlenmis[duzenlenmis["Sil"]]
-    if not secilenler.empty and st.button(
-        f"🗑️ Seçilen {len(secilenler)} kaydı kalıcı olarak sil", type="primary", key=f"{anahtar}_sil"
+
+    silinecek = duzenlenmis[duzenlenmis["Sil"]]
+    degisiklikler = veri.degisiklikleri_bul(
+        duzenlenebilir[~duzenlenmis["Sil"]],
+        duzenlenmis[~duzenlenmis["Sil"]],
+        DUZENLENEBILIR_SUTUNLAR,
+    )
+
+    dugmeler = st.columns(2)
+
+    if degisiklikler and dugmeler[0].button(
+        f"💾 {len(degisiklikler)} kaydı güncelle", type="primary", key=f"{anahtar}_guncelle"
     ):
-        kalan = duzenlenmis[~duzenlenmis["Sil"]].drop(columns=["Sil"])
-        if veri_kaydet(kalan, dosya):
-            st.success(f"✅ {len(secilenler)} kayıt silindi (önceki hâli yedeklendi).")
+        try:
+            uygulanan = veri.degisiklikleri_uygula(degisiklikler)
+            st.success(f"✅ {uygulanan} kayıt güncellendi.")
             st.rerun()
+        except Exception as hata:
+            kayitci.exception("Güncelleme başarısız: %s", defter)
+            st.error(f"❌ Güncelleme başarısız: {hata}")
+
+    if not silinecek.empty and dugmeler[1].button(
+        f"🗑️ Seçilen {len(silinecek)} kaydı sil", type="primary", key=f"{anahtar}_sil"
+    ):
+        try:
+            for kimlik in silinecek["id"]:
+                veri.islem_sil(int(kimlik))
+            st.success(f"✅ {len(silinecek)} kayıt silindi.")
+            st.rerun()
+        except Exception as hata:
+            kayitci.exception("Silme başarısız: %s", defter)
+            st.error(f"❌ Silme başarısız: {hata}")
+
+    if degisiklikler:
+        with st.expander(f"✏️ Bekleyen {len(degisiklikler)} değişiklik"):
+            for kimlik, alanlar in degisiklikler.items():
+                ozet = ", ".join(f"{s} → {d}" for s, d in alanlar.items())
+                st.write(f"**No {kimlik}:** {ozet}")
 
 
 def mukerrer_mi(imza):
@@ -290,8 +373,18 @@ def tradingview_html(ic_yapilandirma, betik, yukseklik):
 # VERİ HAZIRLIĞI
 # ===========================================================================
 
-defter_hisse = veri_yukle(EXCEL_HISSE)
-defter_kripto = veri_yukle(EXCEL_KRIPTO)
+defter_hisse = veri_yukle("hisse")
+defter_kripto = veri_yukle("kripto")
+
+_gecis_sonucu = st.session_state.pop("gecis_sonucu", None)
+if _gecis_sonucu:
+    st.success(
+        f"📦 Excel defterleri veritabanına aktarıldı — "
+        f"{_gecis_sonucu['hisse']} hisse, {_gecis_sonucu['kripto']} kripto kaydı. "
+        "Excel dosyalarınız silinmedi; ayrıca zaman damgalı birer kopyaları alındı."
+    )
+if st.session_state.pop("gecis_hatasi", None):
+    st.error("Excel'den veritabanına geçiş yapılamadı; defterler boş görünebilir.")
 
 hisse_sembolleri = tuple(sorted(set(defter_hisse["Hisse"]) - {""}))
 kripto_sembolleri = tuple(sorted(set(defter_kripto["Hisse"]) - {""}))
@@ -392,10 +485,22 @@ st.markdown("---")
 
 st.sidebar.header("⚙️ Portföy & Veri Yönetimi")
 indirme = st.sidebar.columns(2)
-for kutu, dosya, etiket in [(indirme[0], EXCEL_HISSE, "Hisse"), (indirme[1], EXCEL_KRIPTO, "Kripto")]:
-    if os.path.exists(dosya):
-        with kutu, open(dosya, "rb") as akis:
-            st.download_button(f"📥 {etiket} Excel", akis, file_name=dosya)
+# Excel dışa aktarımı korundu: defter artık veritabanında ama dışarıya
+# vermek gerektiğinde (muhasebe, arşiv, geri dönüş) Excel üretilir.
+def _excel_bayti(cerceve):
+    tampon = io.BytesIO()
+    cerceve.drop(columns=["id"], errors="ignore").to_excel(tampon, index=False)
+    return tampon.getvalue()
+
+
+for kutu, cerceve_df, dosya_adi, etiket in [
+    (indirme[0], defter_hisse, EXCEL_HISSE, "Hisse"),
+    (indirme[1], defter_kripto, EXCEL_KRIPTO, "Kripto"),
+]:
+    if not cerceve_df.empty:
+        with kutu:
+            st.download_button(f"📥 {etiket} Excel", _excel_bayti(cerceve_df),
+                               file_name=dosya_adi, key=f"indir_{etiket}")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛡️ 3 Kazanlı Sermaye Stratejisi")
@@ -492,15 +597,15 @@ with sekme1:
             if hata:
                 st.error(f"❌ {hata}")
             else:
-                yeni = pd.DataFrame([{
+                yeni = {
                     "Tarih": imza[5], "Hisse": secilen_hisse, "Kazan": "", "Tip": tip,
                     "Fiyat": fiyat, "Adet": adet, "Toplam": fiyat * adet,
                     "Para_Birimi": pb_kodu,
                     "Islem_Kuru": islem_kuru if pb_kodu != "USD" else islem_usdtry,
                     "Islem_USDTRY": islem_usdtry,
                     "Borsa_PB": borsa_pb, "Borsa": secilen_borsa,
-                }])
-                if veri_kaydet(pd.concat([defter_hisse, yeni], ignore_index=True), EXCEL_HISSE):
+                }
+                if islem_ekle("hisse", yeni):
                     st.session_state["son_kayit_imzasi"] = imza
                     st.success("✅ İşlem, o anki kur birlikte kaydedildi.")
                     st.rerun()
@@ -528,7 +633,7 @@ with sekme1:
                 grafik[1].plotly_chart(pasta, use_container_width=True)
 
         st.markdown("---")
-        silme_bolumu(defter_hisse, EXCEL_HISSE, "duzenleyici_hisse")
+        kayit_yonetimi(defter_hisse, "hisse", "duzenleyici_hisse")
 
 # --- SEKME 2: KRİPTO -------------------------------------------------------
 with sekme2:
@@ -575,14 +680,14 @@ with sekme2:
             if hata_k:
                 st.error(f"❌ {hata_k}")
             else:
-                yeni_k = pd.DataFrame([{
+                yeni_k = {
                     "Tarih": imza_k[5], "Hisse": secilen_kripto, "Kazan": "", "Tip": k_tip,
                     "Fiyat": k_fiyat, "Adet": k_adet, "Toplam": k_fiyat * k_adet,
                     "Para_Birimi": "USD",
                     "Islem_Kuru": kurlar.get("USD"), "Islem_USDTRY": kurlar.get("USD"),
                     "Borsa_PB": "USD", "Borsa": "BINANCE",
-                }])
-                if veri_kaydet(pd.concat([defter_kripto, yeni_k], ignore_index=True), EXCEL_KRIPTO):
+                }
+                if islem_ekle("kripto", yeni_k):
                     st.session_state["son_kayit_imzasi"] = imza_k
                     st.success("✅ Kripto işlemi kaydedildi.")
                     st.rerun()
@@ -596,7 +701,7 @@ with sekme2:
             st.dataframe(tablo_kripto, use_container_width=True)
 
         st.markdown("---")
-        silme_bolumu(defter_kripto, EXCEL_KRIPTO, "duzenleyici_kripto")
+        kayit_yonetimi(defter_kripto, "kripto", "duzenleyici_kripto")
 
 # --- SEKME 3: GRAFİK -------------------------------------------------------
 with sekme3:
@@ -724,8 +829,15 @@ with sekme5:
     st.markdown("---")
     st.markdown("### 🔌 Servis ve Dosya Denetimi")
     if st.button("🔍 Kontrol et", key="sistem_kontrol"):
-        st.write(f"{'✅' if os.path.exists(EXCEL_HISSE) else 'ℹ️'} **Hisse defteri:** `{EXCEL_HISSE}`")
-        st.write(f"{'✅' if os.path.exists(EXCEL_KRIPTO) else 'ℹ️'} **Kripto defteri:** `{EXCEL_KRIPTO}`")
+        _sayim = veri.sayim()
+        _db_var = os.path.exists(veri.VERITABANI)
+        st.write(f"{'✅' if _db_var else 'ℹ️'} **Veritabanı:** `{veri.VERITABANI}`"
+                 + (f" ({os.path.getsize(veri.VERITABANI):,} bayt)" if _db_var else " — henüz oluşmadı"))
+        st.write(f"📈 **Hisse kaydı:** {_sayim['hisse']}")
+        st.write(f"🪙 **Kripto kaydı:** {_sayim['kripto']}")
+        for _eski in (EXCEL_HISSE, EXCEL_KRIPTO):
+            if os.path.exists(_eski):
+                st.write(f"📦 **Eski Excel defteri duruyor:** `{_eski}` (yedek; panel artık okumuyor)")
         baslangic = time.monotonic()
         try:
             r = requests.get(f"{BINANCE}/api/v3/ping", timeout=3)
@@ -739,15 +851,17 @@ with sekme5:
     qa_kutu = st.columns(2)
     with qa_kutu[0]:
         st.markdown("**🗂️ Defter Durumu**")
-        for dosya, defter in [(EXCEL_HISSE, defter_hisse), (EXCEL_KRIPTO, defter_kripto)]:
-            hata = st.session_state.get("yukleme_hatalari", {}).get(dosya)
-            yedek_sayisi = len(glob.glob(f"{dosya}.*.bak"))
+        for defter_adi, defter in [("hisse", defter_hisse), ("kripto", defter_kripto)]:
+            hata = st.session_state.get("yukleme_hatalari", {}).get(defter_adi)
             if hata:
-                st.write(f"❌ **{dosya}:** okunamıyor — yazma kilitli")
-            elif os.path.exists(dosya):
-                st.write(f"✅ **{dosya}:** {len(defter)} kayıt · {yedek_sayisi} yedek")
+                st.write(f"❌ **{defter_adi} defteri:** okunamıyor — yazma kilitli")
+            elif defter.empty:
+                st.write(f"ℹ️ **{defter_adi} defteri:** kayıt yok")
             else:
-                st.write(f"ℹ️ **{dosya}:** henüz oluşturulmadı")
+                st.write(f"✅ **{defter_adi} defteri:** {len(defter)} kayıt")
+        gecis_yedekleri = glob.glob("*.gecis_*.xlsx")
+        if gecis_yedekleri:
+            st.write(f"📦 **Geçiş yedeği:** {len(gecis_yedekleri)} Excel dosyası saklanıyor")
 
     with qa_kutu[1]:
         st.markdown("**📊 Süreç Kaynak Kullanımı**")

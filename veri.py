@@ -303,3 +303,65 @@ def otomatik_gecis(dosya=VERITABANI, excel_yollari=None):
         kayitci.info("%s → veritabanı: %d kayıt", excel_yolu, sonuc[defter])
 
     return sonuc
+
+
+# ===========================================================================
+# DÜZENLEME YARDIMCISI
+# ===========================================================================
+
+def _esit_mi(eski, yeni):
+    """İki hücre aynı mı? Boş değerler (None/NaN/"") birbirine eşit sayılır.
+
+    Excel'den gelen boşluk NaN, kullanıcının sildiği hücre boş metin, veri
+    tabanından gelen None olabilir. Bunları farklı saymak, kullanıcı hiçbir
+    şeye dokunmadığı hâlde "değişti" diye yazma yapardı.
+    """
+    eski_bos = eski is None or (isinstance(eski, float) and pd.isna(eski)) or eski == ""
+    yeni_bos = yeni is None or (isinstance(yeni, float) and pd.isna(yeni)) or yeni == ""
+    if eski_bos or yeni_bos:
+        return eski_bos and yeni_bos
+
+    if isinstance(eski, (int, float)) and isinstance(yeni, (int, float)):
+        return abs(float(eski) - float(yeni)) < 1e-9
+    return str(eski) == str(yeni)
+
+
+def degisiklikleri_bul(onceki, sonraki, sutunlar=None):
+    """İki tablo arasındaki hücre değişikliklerini `id` üzerinden eşleyerek bulur.
+
+    Döner: {kayit_id: {sutun: yeni_deger}} — yalnızca gerçekten değişenler.
+
+    `id` sütunu olmayan satırlar atlanır: kimliği olmayan bir satırın hangi
+    kaydı güncelleyeceği bilinemez. Bu, SQLite'a geçmenin asıl kazancı —
+    Excel döneminde satırın kimliği olmadığı için "şu kaydı düzelt" demek
+    mümkün değildi, tek yol defteri baştan yazmaktı.
+    """
+    if "id" not in onceki.columns or "id" not in sonraki.columns:
+        return {}
+    sutunlar = sutunlar or [s for s in pc.ZORUNLU_SUTUNLAR if s in sonraki.columns]
+
+    eski_satirlar = {satir["id"]: satir for _, satir in onceki.iterrows()}
+    degisiklikler = {}
+
+    for _, yeni_satir in sonraki.iterrows():
+        kimlik = yeni_satir["id"]
+        eski_satir = eski_satirlar.get(kimlik)
+        if eski_satir is None:
+            continue
+        alanlar = {
+            sutun: yeni_satir[sutun]
+            for sutun in sutunlar
+            if not _esit_mi(eski_satir[sutun], yeni_satir[sutun])
+        }
+        if alanlar:
+            degisiklikler[kimlik] = alanlar
+
+    return degisiklikler
+
+
+def degisiklikleri_uygula(degisiklikler, dosya=VERITABANI):
+    """degisiklikleri_bul çıktısını veritabanına yazar. Döner: değişen kayıt sayısı."""
+    uygulanan = 0
+    for kimlik, alanlar in degisiklikler.items():
+        uygulanan += 1 if islem_guncelle(int(kimlik), alanlar, dosya) else 0
+    return uygulanan

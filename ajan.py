@@ -28,11 +28,9 @@ import pandas as pd
 
 import piyasa
 import portfoy_core as pc
+import veri
 
 kayitci = logging.getLogger(__name__)
-
-EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
-EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 
 MODEL = "claude-opus-5"
 # Etki seviyesi maliyet/kota ile kalite arasındaki ana kol. "high" iyi bir
@@ -67,7 +65,7 @@ Türkçe, kısa ve doğrudan yaz. Sorulmayan tabloları dökme."""
 # ===========================================================================
 
 def _defterler():
-    return pc.defter_oku(EXCEL_HISSE), pc.defter_oku(EXCEL_KRIPTO)
+    return veri.defter_oku("hisse"), veri.defter_oku("kripto")
 
 
 def portfoy_verisi():

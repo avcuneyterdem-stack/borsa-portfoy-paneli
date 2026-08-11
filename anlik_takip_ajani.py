@@ -29,11 +29,10 @@ import pandas as pd
 import izleme
 import piyasa
 import portfoy_core as pc
+import veri
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
-EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
-EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 TSI = ZoneInfo("Europe/Istanbul")
 
 # Portföyden bağımsız, her zaman izlenen göstergeler.
@@ -45,11 +44,11 @@ SABIT_GOSTERGELER = {
 ONS_GRAM = 31.1035
 
 
-def defteri_oku(dosya):
+def defteri_oku(defter):
     try:
-        return pc.defter_oku(dosya)
+        return veri.defter_oku(defter)
     except Exception as hata:
-        print(f"⚠️  {dosya} okunamadı: {hata}")
+        print(f"⚠️  {defter} defteri okunamadı: {hata}")
         return pc.bos_defter()
 
 
@@ -161,8 +160,8 @@ def alarmlari_denetle(hisse_semboller, kripto_semboller):
 
 
 def bir_tur(alarm_denetle=True):
-    hisse_semboller = acik_semboller(defteri_oku(EXCEL_HISSE))
-    kripto_semboller = acik_semboller(defteri_oku(EXCEL_KRIPTO))
+    hisse_semboller = acik_semboller(defteri_oku("hisse"))
+    kripto_semboller = acik_semboller(defteri_oku("kripto"))
     tablo = tabloyu_kur(hisse_semboller, kripto_semboller)
 
     zaman = dt.datetime.now(TSI).strftime("%Y-%m-%d %H:%M:%S")

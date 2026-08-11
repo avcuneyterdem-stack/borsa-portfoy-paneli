@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 import otomatik_takip as ot
-import portfoy_core as pc
+import veri
 
 
 @pytest.fixture
@@ -20,14 +20,14 @@ def calisma_dizini(tmp_path, monkeypatch):
     return tmp_path
 
 
-def defter_yaz(dosya, **alanlar):
+def defter_yaz(defter="hisse", **alanlar):
     satir = {
         "Tarih": "2026-01-01 10:00", "Hisse": "AAPL", "Kazan": "", "Tip": "AL 🟢",
         "Fiyat": 100.0, "Adet": 2.0, "Toplam": 200.0, "Para_Birimi": "USD",
         "Islem_Kuru": 34.0, "Islem_USDTRY": 34.0, "Borsa_PB": "USD", "Borsa": "NASDAQ",
     }
     satir.update(alanlar)
-    pc.sema_uygula(pd.DataFrame([satir])).to_excel(dosya, index=False)
+    veri.defter_yaz(pd.DataFrame([satir]), defter)
 
 
 def degerleme(**degisiklikler):
@@ -42,7 +42,7 @@ def degerleme(**degisiklikler):
 
 
 def test_gun_sonu_kaydi_yazilir(calisma_dizini, monkeypatch):
-    defter_yaz(ot.EXCEL_HISSE)
+    defter_yaz("hisse")
     monkeypatch.setattr(ot.piyasa, "portfoy_degerle", lambda *a: degerleme())
 
     assert ot.gun_sonu_kaydet() == 0
@@ -56,7 +56,7 @@ def test_gun_sonu_kaydi_yazilir(calisma_dizini, monkeypatch):
 
 def test_kur_yoksa_hicbir_sey_kaydedilmez(calisma_dizini, monkeypatch):
     """Eski sürüm burada sabit 34.0 varsayıp yanlış geçmiş yazıyordu."""
-    defter_yaz(ot.EXCEL_HISSE)
+    defter_yaz("hisse")
     monkeypatch.setattr(ot.piyasa, "portfoy_degerle", lambda *a: degerleme(kur_eksik=True))
 
     assert ot.gun_sonu_kaydet() == 1
@@ -64,7 +64,7 @@ def test_kur_yoksa_hicbir_sey_kaydedilmez(calisma_dizini, monkeypatch):
 
 
 def test_ayni_gun_tekrar_calisirsa_satir_cogalmaz(calisma_dizini, monkeypatch):
-    defter_yaz(ot.EXCEL_HISSE)
+    defter_yaz("hisse")
     monkeypatch.setattr(ot.piyasa, "portfoy_degerle", lambda *a: degerleme())
     ot.gun_sonu_kaydet()
 
@@ -77,7 +77,7 @@ def test_ayni_gun_tekrar_calisirsa_satir_cogalmaz(calisma_dizini, monkeypatch):
 
 
 def test_fiyatsiz_varliklar_nota_yazilir(calisma_dizini, monkeypatch):
-    defter_yaz(ot.EXCEL_HISSE)
+    defter_yaz("hisse")
     monkeypatch.setattr(
         ot.piyasa, "portfoy_degerle",
         lambda *a: degerleme(fiyatsiz=["THYAO"], uyarilar=["1 eşleşmeyen satış"]),
@@ -92,12 +92,12 @@ def test_fiyatsiz_varliklar_nota_yazilir(calisma_dizini, monkeypatch):
 
 def test_bozuk_defter_gecmisi_bozmaz(calisma_dizini, monkeypatch):
     """Defter okunamıyorsa kayıt yapılmaz; mevcut geçmiş korunur."""
-    defter_yaz(ot.EXCEL_HISSE)
+    defter_yaz("hisse")
     monkeypatch.setattr(ot.piyasa, "portfoy_degerle", lambda *a: degerleme())
     ot.gun_sonu_kaydet()
     onceki = (calisma_dizini / ot.EXCEL_GECMIS).read_bytes()
 
-    (calisma_dizini / ot.EXCEL_HISSE).write_text("bu bir excel dosyası değil")
+    (calisma_dizini / veri.VERITABANI).write_bytes(b"bu bir veritabani degil")
     assert ot.gun_sonu_kaydet() == 1
     assert (calisma_dizini / ot.EXCEL_GECMIS).read_bytes() == onceki
 

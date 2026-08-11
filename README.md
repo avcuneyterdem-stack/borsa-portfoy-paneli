@@ -30,6 +30,8 @@ python anlik_takip_ajani.py --surekli --aralik 60
 
 | Dosya | Sorumluluk |
 |---|---|
+| `veri.py` | Defterlerin SQLite deposu: okuma, yazma, düzenleme, Excel'e gidiş-geliş. |
+| `test_veri.py` | Depo katmanının testleri. |
 | `portfoy_core.py` | Saf hesap katmanı: para çevrimi, pozisyon/K-Z hesabı, RSI, şema, dayanıklı dosya yazımı. Streamlit ve ağ erişimi içermez. |
 | `app.py` | Arayüz ve disk erişimi. Piyasa verisi `piyasa.py`'den gelir; buradaki fonksiyonlar yalnızca streamlit önbelleği ekleyen sarmalayıcılardır. |
 | `test_portfoy_core.py` | Çekirdeğin birim testleri. |
@@ -158,6 +160,46 @@ panelde nötr görmek demektir.
 
 > **Yatırım tavsiyesi değildir.** Teknik göstergeler geçmiş fiyat hareketinin
 > matematiksel özetidir; geleceği bilmezler.
+
+## Veri deposu: SQLite
+
+Defterler `portfoy.db` dosyasında tutulur. Excel'den geçişin üç sebebi vardı:
+
+| Sorun | Neden çözüldü |
+|---|---|
+| Panel açıkken zamanlayıcı yazamıyordu | WAL kipi + 10 sn kilit beklemesi: ikisi aynı anda yazabilir |
+| OneDrive iki cihazda "çakışan kopya" üretiyordu | Tek dosya, işlem düzeyinde tutarlılık |
+| Satırın kimliği yoktu | Her işlemin `id`'si var; tek kayıt düzeltilip silinebiliyor |
+
+**`portfoy_core` hiç değişmedi.** `veri.py` DataFrame alır, DataFrame verir;
+para hesaplarının tamamı ve testleri olduğu gibi duruyor. Depo değişti,
+muhasebe değişmedi.
+
+### Geçiş
+
+Panel ilk açılışta mevcut Excel defterlerini otomatik aktarır. Sonrasında bir
+daha çalışmaz — çalışsaydı geçişten sonra girilen işlemleri silip eski Excel'in
+üstüne yazardı.
+
+Excel dosyaları **silinmez**; ayrıca `portfoy_defteri_hisse.gecis_<tarih>.xlsx`
+biçiminde birer kopyası alınır. Elde iki yedek kalır.
+
+### Kayıt düzeltme ve silme
+
+Her iki portföy sekmesinin altındaki tablodan hücrelere tıklayıp
+düzeltebilirsiniz. Değiştirilebilen alanlar: **Tip, Fiyat, Adet, Kazan, Borsa**.
+
+Tarih, hisse kodu ve işlem anındaki kur (`Islem_Kuru`, `Islem_USDTRY`) bilerek
+kilitli. Bunları değiştirmek kaydı başka bir işleme çevirir ve geçmiş maliyet
+hesabını sessizce bozar; öyle bir ihtiyaç varsa doğrusu silip yeniden girmektir.
+
+Değişiklikler önce özetlenir ("Bekleyen 2 değişiklik"), onaylayınca yazılır.
+
+### Excel'e dönüş
+
+Kenar çubuğundaki **📥 Excel** düğmeleri defteri her zaman Excel olarak verir.
+Kod tarafında `veri.excele_aktar("hisse", "defter.xlsx")` aynı işi yapar —
+veritabanından memnun kalmazsan defterini eski biçiminde geri alırsın.
 
 ## Defter şeması ve geçiş
 

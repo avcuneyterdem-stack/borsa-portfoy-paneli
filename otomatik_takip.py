@@ -32,12 +32,11 @@ import pandas as pd
 
 import piyasa
 import portfoy_core as pc
+import veri
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 kayitci = logging.getLogger("otomatik_takip")
 
-EXCEL_HISSE = "portfoy_defteri_hisse.xlsx"
-EXCEL_KRIPTO = "portfoy_defteri_kripto.xlsx"
 EXCEL_GECMIS = "portfoy_gecmisi.xlsx"
 TSI = ZoneInfo("Europe/Istanbul")
 
@@ -67,23 +66,23 @@ GECMIS_SUTUNLARI = [
 ]
 
 
-def defteri_oku(dosya):
-    """Defteri okur. Dosya yoksa boş defter, okunamıyorsa None döner.
+def defteri_oku(defter):
+    """Defteri veritabanından okur. Okunamıyorsa None döner.
 
     None ile boş defterin ayrı olması önemli: okunamayan bir defterle
     hesaplanan gün sonu değeri, sessizce eksik bir geçmiş yazar.
     """
     try:
-        return pc.defter_oku(dosya)
+        return veri.defter_oku(defter)
     except Exception as hata:
-        kayitci.error("%s okunamadı: %s", dosya, hata)
+        kayitci.error("%s defteri okunamadı: %s", defter, hata)
         return None
 
 
 def gun_sonu_kaydet():
     """Bugünün kapanış değerini hesaplayıp geçmişe yazar."""
-    defter_hisse = defteri_oku(EXCEL_HISSE)
-    defter_kripto = defteri_oku(EXCEL_KRIPTO)
+    defter_hisse = defteri_oku("hisse")
+    defter_kripto = defteri_oku("kripto")
 
     if defter_hisse is None or defter_kripto is None:
         kayitci.error("Defter okunamadığı için kayıt yapılmadı (veri bozulmasın diye).")

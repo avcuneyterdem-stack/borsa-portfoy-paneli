@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import ajan
-import portfoy_core as pc
+import veri
 
 
 @pytest.fixture
@@ -29,8 +29,8 @@ def satir(**alanlar):
     return varsayilan
 
 
-def defter_yaz(dosya, *satirlar):
-    pc.sema_uygula(pd.DataFrame(list(satirlar))).to_excel(dosya, index=False)
+def defter_yaz(defter, *satirlar):
+    veri.defter_yaz(pd.DataFrame(list(satirlar)), defter)
 
 
 # --- Araç yüzeyi ------------------------------------------------------------
@@ -62,7 +62,7 @@ def test_bos_portfoyde_deger_hesabi_denenmez(calisma_dizini, monkeypatch):
 
 
 def test_portfoy_ozeti_degerlemeyi_dondurur(calisma_dizini, monkeypatch):
-    defter_yaz(ajan.EXCEL_HISSE, satir())
+    defter_yaz("hisse", satir())
     monkeypatch.setattr(ajan.piyasa, "portfoy_degerle",
                         lambda *a: {"maliyet_usd": 200.0, "deger_usd": 260.0,
                                     "fiyatsiz": [], "kur_eksik": False})
@@ -72,7 +72,7 @@ def test_portfoy_ozeti_degerlemeyi_dondurur(calisma_dizini, monkeypatch):
 
 def test_fiyatsiz_varliklar_modele_gorunur(calisma_dizini, monkeypatch):
     """Eksik fiyat bilgisi araç çıktısından silinmemeli."""
-    defter_yaz(ajan.EXCEL_HISSE, satir())
+    defter_yaz("hisse", satir())
     monkeypatch.setattr(ajan.piyasa, "portfoy_degerle",
                         lambda *a: {"deger_usd": 0.0, "fiyatsiz": ["THYAO"],
                                     "kur_eksik": True})
@@ -84,7 +84,7 @@ def test_fiyatsiz_varliklar_modele_gorunur(calisma_dizini, monkeypatch):
 # --- varlik_detayi ----------------------------------------------------------
 
 def test_hisse_detayi_yahoo_yolundan_gelir(calisma_dizini, monkeypatch):
-    defter_yaz(ajan.EXCEL_HISSE, satir())
+    defter_yaz("hisse", satir())
     monkeypatch.setattr(ajan.piyasa, "hisse_fiyatlari",
                         lambda s: {"AAPL": {"fiyat": 130.0, "degisim": 1.2, "rsi": 55.0}})
     monkeypatch.setattr(ajan.piyasa, "sembol_meta", lambda k: {"borsa_pb": "USD"})
@@ -95,7 +95,7 @@ def test_hisse_detayi_yahoo_yolundan_gelir(calisma_dizini, monkeypatch):
 
 
 def test_kripto_detayi_binance_yolundan_gelir(calisma_dizini, monkeypatch):
-    defter_yaz(ajan.EXCEL_KRIPTO, satir(Hisse="BTC", Borsa="BINANCE"))
+    defter_yaz("kripto", satir(Hisse="BTC", Borsa="BINANCE"))
     monkeypatch.setattr(ajan.piyasa, "kripto_fiyatlari",
                         lambda s: {"BTC": {"fiyat": 65000.0, "degisim": -2.5}})
     monkeypatch.setattr(ajan.piyasa, "kripto_rsi", lambda s: 48.0)
@@ -115,7 +115,7 @@ def test_fiyat_yoksa_uydurulmaz(calisma_dizini, monkeypatch):
 
 def test_gecmis_en_yeniden_eskiye_siralanir(calisma_dizini):
     defter_yaz(
-        ajan.EXCEL_HISSE,
+        "hisse",
         satir(Tarih="2026-01-01 10:00", Fiyat=100.0),
         satir(Tarih="2026-03-01 10:00", Fiyat=300.0),
         satir(Tarih="2026-02-01 10:00", Fiyat=200.0),
@@ -126,7 +126,7 @@ def test_gecmis_en_yeniden_eskiye_siralanir(calisma_dizini):
 
 def test_gecmis_sembol_ve_tip_ile_suzulur(calisma_dizini):
     defter_yaz(
-        ajan.EXCEL_HISSE,
+        "hisse",
         satir(Hisse="AAPL"),
         satir(Hisse="MSFT", Tarih="2026-01-02 10:00"),
         satir(Hisse="AAPL", Tip="SAT 🔴", Tarih="2026-01-03 10:00"),
@@ -137,8 +137,8 @@ def test_gecmis_sembol_ve_tip_ile_suzulur(calisma_dizini):
 
 
 def test_gecmis_iki_defteri_birlestirir(calisma_dizini):
-    defter_yaz(ajan.EXCEL_HISSE, satir(Hisse="AAPL"))
-    defter_yaz(ajan.EXCEL_KRIPTO, satir(Hisse="BTC"))
+    defter_yaz("hisse", satir(Hisse="AAPL"))
+    defter_yaz("kripto", satir(Hisse="BTC"))
     assert ajan.gecmis_verisi()["kayit_sayisi"] == 2
 
 
