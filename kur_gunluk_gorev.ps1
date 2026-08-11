@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Gün sonu portföy kaydını Windows Görev Zamanlayıcı'ya kurar.
 
@@ -26,6 +26,11 @@
     .\kur_gunluk_gorev.ps1 -Dene
     .\kur_gunluk_gorev.ps1 -Kaldir
 #>
+
+# NOT: Bu dosya UTF-8 BOM ile kaydedilmelidir. Windows PowerShell 5.1, BOM
+# yoksa .ps1 dosyalarını sistemin ANSI kod sayfasıyla okur ve Türkçe harfler
+# bozuk görünür ("Başarılı" → "BaÅŸarÄ±lÄ±"). Düzenleyip kaydederken
+# kodlamayı "UTF-8 with BOM" olarak koru.
 
 [CmdletBinding()]
 param(

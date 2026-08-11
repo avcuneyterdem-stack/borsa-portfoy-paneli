@@ -5,6 +5,7 @@ kur çekilemediğinde sabit 34.0 varsayıp yanlış bir geçmiş yazıyordu.
 """
 
 import logging
+import os
 
 import pandas as pd
 import pytest
@@ -142,3 +143,27 @@ def test_ayni_log_iki_kez_eklenmez(tmp_path, monkeypatch):
             if tutamak not in onceki:
                 tutamak.close()
                 kok.removeHandler(tutamak)
+
+
+# --- Görev betiğinin kodlaması ---------------------------------------------
+
+def test_ps1_dosyasi_bom_ile_kaydedilmis():
+    """Windows PowerShell 5.1, BOM yoksa .ps1'i ANSI sanır ve Türkçe
+    harfleri bozar ("Başarılı" → "BaÅŸarÄ±lÄ±"). Bir düzenleme sırasında
+    BOM kaybolursa bu test yakalar."""
+    yol = os.path.join(os.path.dirname(__file__), "kur_gunluk_gorev.ps1")
+    if not os.path.exists(yol):
+        pytest.skip("Betik bu kurulumda yok.")
+    with open(yol, "rb") as akis:
+        assert akis.read(3) == b"\xef\xbb\xbf", "kur_gunluk_gorev.ps1 UTF-8 BOM taşımıyor"
+
+
+def test_ps1_turkce_karakterleri_okunabilir():
+    """BOM'lu UTF-8 olarak açıldığında metin bozulmamış olmalı."""
+    yol = os.path.join(os.path.dirname(__file__), "kur_gunluk_gorev.ps1")
+    if not os.path.exists(yol):
+        pytest.skip("Betik bu kurulumda yok.")
+    with open(yol, encoding="utf-8-sig") as akis:
+        icerik = akis.read()
+    assert "Başarılı" in icerik and "Ön kontroller" in icerik
+    assert "Ã" not in icerik, "metin çift kodlanmış görünüyor"
